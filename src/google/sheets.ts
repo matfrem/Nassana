@@ -10,6 +10,8 @@ export type SetupFix =
   | { kind: 'empty' }
   | { kind: 'no-tab' }
   | { kind: 'missing-columns'; columns: string[] }
+  /** Not a structure problem: the app has no access to this file until the user picks it. */
+  | { kind: 'pick' }
 
 export class SheetError extends Error {
   constructor(
@@ -40,11 +42,10 @@ export function parseSheetId(input: string): string | null {
 interface ApiOptions {
   method?: 'GET' | 'PUT' | 'POST'
   body?: unknown
-  write?: boolean
 }
 
 async function api(url: string, opts: ApiOptions = {}, retry = true): Promise<unknown> {
-  const token = await getToken(opts.write)
+  const token = await getToken()
   const res = await fetch(url, {
     method: opts.method ?? 'GET',
     headers: {
@@ -66,14 +67,16 @@ async function api(url: string, opts: ApiOptions = {}, retry = true): Promise<un
   } catch {
     /* non-JSON error body */
   }
-  if (res.status === 403) {
+  if (opts.method && opts.method !== 'GET' && res.status === 403) {
+    throw new SheetError("You don't have edit access to this Sheet. Ask its owner, or fix it by hand.")
+  }
+  // With the drive.file scope, a Sheet we were not given access to answers 403 or 404.
+  if (res.status === 403 || res.status === 404) {
     throw new SheetError(
-      opts.write
-        ? "You don't have edit access to this Sheet. Ask its owner, or add the columns yourself."
-        : "You don't have access to this Sheet. Ask its owner to share it with you.",
+      'Nassana can only open Sheets you choose. Pick this one to give it access.',
+      { kind: 'pick' },
     )
   }
-  if (res.status === 404) throw new SheetError('Sheet not found. Check the link.')
   if (res.status === 400 && /Unable to parse range/i.test(detail)) {
     throw new SheetError(`This Sheet has no tab named "${TASKS_TAB}".`, { kind: 'no-tab' })
   }
@@ -174,26 +177,24 @@ function columnLetter(index: number): string {
   return s
 }
 
-/** Repairs the Sheet's structure. Needs write access: call signIn(true) from the click handler first. */
+/** Repairs the Sheet's structure (needs edit rights on the Sheet). */
 export async function applySetupFix(sheetId: string, fix: SetupFix): Promise<void> {
   const id = encodeURIComponent(sheetId)
   const put = (range: string, row: string[]) =>
     api(`${API}/${id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
       method: 'PUT',
-      write: true,
       body: { values: [row] },
     })
 
   if (fix.kind === 'no-tab') {
     await api(`${API}/${id}:batchUpdate`, {
       method: 'POST',
-      write: true,
       body: { requests: [{ addSheet: { properties: { title: TASKS_TAB } } }] },
     })
     await put(`${TASKS_TAB}!A1:${columnLetter(HEADER.length - 1)}1`, HEADER)
   } else if (fix.kind === 'empty') {
     await put(`${TASKS_TAB}!A1:${columnLetter(HEADER.length - 1)}1`, HEADER)
-  } else {
+  } else if (fix.kind === 'missing-columns') {
     // Append the missing columns right after the existing header cells.
     const res = (await api(`${API}/${id}/values/${encodeURIComponent(`${TASKS_TAB}!1:1`)}`)) as {
       values?: unknown[][]

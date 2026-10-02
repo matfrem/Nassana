@@ -1,7 +1,10 @@
 import { GOOGLE_CLIENT_ID } from '../config'
 
-export const SCOPE_READ = 'https://www.googleapis.com/auth/spreadsheets.readonly'
-export const SCOPE_WRITE = 'https://www.googleapis.com/auth/spreadsheets'
+/**
+ * Access only to the files the user explicitly picks with the Google Picker
+ * (plus files this app created). Read and write, but nothing else in their Drive.
+ */
+export const SCOPE = 'https://www.googleapis.com/auth/drive.file'
 
 const SIGNED_IN_KEY = 'nassana.signedIn'
 
@@ -15,7 +18,6 @@ export class AuthRequiredError extends Error {
 interface TokenResponse {
   access_token?: string
   expires_in?: number
-  scope?: string
   error?: string
   error_description?: string
 }
@@ -59,7 +61,7 @@ function loadGis(): Promise<void> {
   return gisPromise
 }
 
-let token: { value: string; expiresAt: number; write: boolean } | null = null
+let token: { value: string; expiresAt: number } | null = null
 let pending: Promise<string> | null = null
 
 function readFlag(): boolean {
@@ -78,23 +80,19 @@ function writeFlag(v: boolean) {
   }
 }
 
-function requestToken(scope: string, prompt: '' | 'consent' = ''): Promise<string> {
+function requestToken(prompt: '' | 'consent' = ''): Promise<string> {
   pending ??= loadGis()
     .then(
       () =>
         new Promise<string>((resolve, reject) => {
           const client = window.google!.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
-            scope,
+            scope: SCOPE,
             callback: (r) => {
               if (r.error || !r.access_token) {
                 return reject(new Error(r.error_description ?? r.error ?? 'Sign-in failed'))
               }
-              token = {
-                value: r.access_token,
-                expiresAt: Date.now() + (r.expires_in ?? 3600) * 1000 - 60_000,
-                write: (r.scope ?? scope).split(' ').includes(SCOPE_WRITE),
-              }
+              token = { value: r.access_token, expiresAt: Date.now() + (r.expires_in ?? 3600) * 1000 - 60_000 }
               writeFlag(true)
               resolve(r.access_token)
             },
@@ -109,23 +107,19 @@ function requestToken(scope: string, prompt: '' | 'consent' = ''): Promise<strin
   return pending
 }
 
-/**
- * Interactive sign-in. Must be called from a user gesture (button click).
- * Pass write=true to also ask for permission to edit the Sheet.
- */
-export function signIn(write = false): Promise<string> {
-  return requestToken(write ? SCOPE_WRITE : SCOPE_READ)
+/** Interactive sign-in. Must be called from a user gesture (button click). */
+export function signIn(): Promise<string> {
+  return requestToken()
 }
 
 /**
  * Returns a valid access token, refreshing silently if the user signed in before.
  * Throws AuthRequiredError if the user has to click "Sign in".
  */
-export async function getToken(write = false): Promise<string> {
-  if (token && token.expiresAt > Date.now() && (token.write || !write)) return token.value
-  if (write) return requestToken(SCOPE_WRITE)
+export async function getToken(): Promise<string> {
+  if (token && token.expiresAt > Date.now()) return token.value
   if (!readFlag()) throw new AuthRequiredError()
-  return requestToken(SCOPE_READ)
+  return requestToken()
 }
 
 export function invalidateToken() {

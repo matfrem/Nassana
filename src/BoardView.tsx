@@ -4,6 +4,7 @@ import { fitCamera, zoomAt } from './board/camera'
 import { NOTE_SIZE } from './constants'
 import { demoTasks } from './data'
 import { AuthRequiredError, signIn } from './google/auth'
+import { pickSheet } from './google/picker'
 import { applySetupFix, fetchSheet, SheetError, type SetupFix } from './google/sheets'
 import { rememberSheet } from './recent'
 import type { Camera, Task } from './types'
@@ -18,7 +19,7 @@ type Status =
 
 const POLL_MS = 30_000
 
-const FIX_LABEL: Record<SetupFix['kind'], string> = {
+const FIX_LABEL: Record<Exclude<SetupFix['kind'], 'pick'>, string> = {
   empty: 'Add header row now',
   'no-tab': 'Create Tasks tab now',
   'missing-columns': 'Add missing columns now',
@@ -100,15 +101,20 @@ export function BoardView({ source }: { source: Source }) {
     if (!sheetId) return
     setStatus({ kind: 'loading' })
     try {
-      await signIn(true) // asks for edit permission; must run inside the click
       await applySetupFix(sheetId, fix)
       await load(false)
     } catch (e) {
-      if (e instanceof AuthRequiredError) {
-        setStatus({ kind: 'error', message: 'Edit permission was not granted.', fix })
-      } else {
-        setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
-      }
+      setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  const onPick = async () => {
+    if (!sheetId) return
+    try {
+      const picked = await pickSheet(sheetId)
+      if (picked) await load(false)
+    } catch (e) {
+      setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e), fix: { kind: 'pick' } })
     }
   }
 
@@ -186,7 +192,7 @@ export function BoardView({ source }: { source: Source }) {
             {status.kind === 'loading' && <p>Loading sheet…</p>}
             {status.kind === 'signin' && (
               <>
-                <p>Sign in with Google to read this Sheet.</p>
+                <p>Sign in with Google to open this Sheet.</p>
                 <button className="primary" onClick={onSignIn}>
                   Sign in with Google
                 </button>
@@ -196,10 +202,16 @@ export function BoardView({ source }: { source: Source }) {
               <>
                 <p className="error">{status.message}</p>
                 <div className="row">
-                  {status.fix && (
-                    <button className="primary" onClick={() => void onFix(status.fix!)}>
-                      {FIX_LABEL[status.fix.kind]}
+                  {status.fix?.kind === 'pick' ? (
+                    <button className="primary" onClick={() => void onPick()}>
+                      Choose this Sheet
                     </button>
+                  ) : (
+                    status.fix && (
+                      <button className="primary" onClick={() => void onFix(status.fix!)}>
+                        {FIX_LABEL[status.fix.kind]}
+                      </button>
+                    )
                   )}
                   <button onClick={() => void load(false)}>Retry</button>
                   <a className="button" href="#/">

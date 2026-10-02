@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { AuthRequiredError, signIn } from './google/auth'
+import { pickSheet } from './google/picker'
 import { parseSheetId } from './google/sheets'
 import { loadRecent } from './recent'
 
@@ -14,13 +16,30 @@ export function Home() {
     location.hash = `#/sheet/${id}`
   }
 
+  const choose = async () => {
+    try {
+      await signIn()
+      const picked = await pickSheet()
+      if (picked) location.hash = `#/sheet/${picked.id}`
+    } catch (e) {
+      if (!(e instanceof AuthRequiredError)) setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   return (
     <main className="home">
       <h1>Nassana</h1>
       <p className="lead">Your Google Sheet tasks, as sticky notes on an infinite board.</p>
 
+      <button className="primary big" onClick={() => void choose()}>
+        Choose a Sheet from Google Drive
+      </button>
+      <p className="or">or paste a link</p>
+
       <form onSubmit={open}>
-        <label htmlFor="sheet-url">Google Sheet link</label>
+        <label htmlFor="sheet-url" className="sr-only">
+          Google Sheet link
+        </label>
         <div className="row">
           <input
             id="sheet-url"
@@ -30,7 +49,6 @@ export function Home() {
               setInput(e.target.value)
               setError('')
             }}
-            autoFocus
           />
           <button className="primary" type="submit">
             Open

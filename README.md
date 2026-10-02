@@ -33,3 +33,12 @@ A tab named `Tasks` with a header row. Columns are matched by name (case-insensi
 | 1  | Call the client | `{"x":0,"y":0,"color":"#FFE066"}` |
 
 `id` must be unique and stable. `board` is optional: rows without a position are laid out automatically.
+
+## Google Cloud setup
+
+- OAuth client (Web application) with authorized JavaScript origins: `http://localhost:5173` and the Pages origin.
+- APIs enabled: Google Sheets API, Google Picker API.
+- API key restricted to the Pages origin and to the Picker API.
+- Scope: `drive.file` only. The app can only touch Sheets the user picks in the Google Picker.
+
+Override the built-in public IDs with `VITE_GOOGLE_CLIENT_ID` / `VITE_GOOGLE_API_KEY` if needed.
