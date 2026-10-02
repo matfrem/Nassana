@@ -6,7 +6,14 @@
     <title>Nassana</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><p id="boot" style="font-family:system-ui;padding:24px">Loading Nassana…</p></div>
+    <script>
+      // Shows startup errors on screen instead of a blank page (useful on phones, no console).
+      window.addEventListener('error', function (e) {
+        var el = document.getElementById('boot')
+        if (el) el.textContent = 'Startup error: ' + (e.message || 'could not load a script')
+      }, true)
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
