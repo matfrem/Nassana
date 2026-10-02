@@ -21,9 +21,8 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Read-only / Edit mode, note dragging (placeholder data)
 - [x] Google sign-in + reading the Sheet (read-only, polls every 30s)
 - [x] Saving positions (debounced, by row id)
-- [ ] Color, renaming
+- [x] Add note, color, rename, delete (Edit mode: tap a note to select it)
 - [ ] Drawing on the board
-- [ ] Creating / deleting tasks
 
 ## Sheet format
 

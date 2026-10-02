@@ -204,45 +204,123 @@ export async function applySetupFix(sheetId: string, fix: SetupFix): Promise<voi
   }
 }
 
-/**
- * Writes the `board` cell of the given tasks, locating each row by id (never by
- * position, so sorting or inserting rows in the Sheet cannot misdirect a write).
- * Adds the `board` column if the header does not have it yet.
- */
-export async function saveBoards(sheetId: string, items: { id: string; board: BoardInfo }[]): Promise<void> {
-  if (items.length === 0) return
-  const id = encodeURIComponent(sheetId)
+interface Table {
+  rows: unknown[][]
+  header: string[]
+  iId: number
+  iTitle: number
+}
+
+/** Reads the whole Tasks tab (a few hundred cells at most) and locates the key columns. */
+async function readTable(sheetId: string): Promise<Table> {
   const res = (await api(
-    `${API}/${id}/values/${encodeURIComponent(TASKS_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
+    `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(TASKS_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
   )) as { values?: unknown[][] }
   const rows = res.values ?? []
   if (rows.length === 0) throw new SheetError(`The "${TASKS_TAB}" tab is empty.`, { kind: 'empty' })
-
   const header = rows[0].map((h) => String(h ?? '').trim().toLowerCase())
-  const iId = header.indexOf('id')
-  if (iId < 0) throw new SheetError('Missing column(s) in the header row: id.', { kind: 'missing-columns', columns: ['id'] })
+  const [iId, iTitle] = [header.indexOf('id'), header.indexOf('title')]
+  const missing = [iId < 0 && 'id', iTitle < 0 && 'title'].filter(Boolean) as string[]
+  if (missing.length) {
+    throw new SheetError(`Missing column(s) in the header row: ${missing.join(', ')}.`, {
+      kind: 'missing-columns',
+      columns: missing,
+    })
+  }
+  return { rows, header, iId, iTitle }
+}
 
-  let iBoard = header.indexOf('board')
+const boardJson = (b: BoardInfo) =>
+  JSON.stringify({ x: Math.round(b.x), y: Math.round(b.y), color: b.color })
+
+/** 1-based sheet row of each task id. */
+function rowsById(t: Table): Map<string, number> {
+  const m = new Map<string, number>()
+  t.rows.forEach((r, i) => {
+    if (i > 0) m.set(String(r[t.iId] ?? '').trim(), i + 1)
+  })
+  return m
+}
+
+export interface TaskPatch {
+  id: string
+  title?: string
+  board?: BoardInfo
+}
+
+/**
+ * Writes only the cells that changed (title and/or board), locating each row by id
+ * (never by position, so sorting or inserting rows in the Sheet cannot misdirect a write).
+ * Adds the `board` column to the header if it is missing.
+ */
+export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<void> {
+  if (patches.length === 0) return
+  const t = await readTable(sheetId)
+  const rowOf = rowsById(t)
   const data: { range: string; values: string[][] }[] = []
-  if (iBoard < 0) {
-    iBoard = header.length
+
+  let iBoard = t.header.indexOf('board')
+  if (iBoard < 0 && patches.some((p) => p.board)) {
+    iBoard = t.header.length
     data.push({ range: `${TASKS_TAB}!${columnLetter(iBoard)}1`, values: [['board']] })
   }
-
-  const rowOf = new Map<string, number>()
-  rows.forEach((r, i) => {
-    if (i > 0) rowOf.set(String(r[iId] ?? '').trim(), i + 1) // 1-based sheet row
-  })
-  for (const { id: taskId, board } of items) {
-    const row = rowOf.get(taskId)
+  for (const p of patches) {
+    const row = rowOf.get(p.id)
     if (!row) continue // the row was deleted in the meantime
-    const value = JSON.stringify({ x: Math.round(board.x), y: Math.round(board.y), color: board.color })
-    data.push({ range: `${TASKS_TAB}!${columnLetter(iBoard)}${row}`, values: [[value]] })
+    if (p.title !== undefined) {
+      data.push({ range: `${TASKS_TAB}!${columnLetter(t.iTitle)}${row}`, values: [[p.title]] })
+    }
+    if (p.board) data.push({ range: `${TASKS_TAB}!${columnLetter(iBoard)}${row}`, values: [[boardJson(p.board)]] })
   }
   if (data.length === 0) return
 
-  await api(`${API}/${id}/values:batchUpdate`, {
+  await api(`${API}/${encodeURIComponent(sheetId)}/values:batchUpdate`, {
     method: 'POST',
     body: { valueInputOption: 'RAW', data },
+  })
+}
+
+/** Appends a new row at the bottom of the Tasks tab. */
+export async function appendTask(sheetId: string, task: Task): Promise<void> {
+  const t = await readTable(sheetId)
+  const header = [...t.header]
+  let iBoard = header.indexOf('board')
+  if (iBoard < 0) {
+    iBoard = header.length
+    header.push('board')
+    await api(
+      `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${TASKS_TAB}!${columnLetter(iBoard)}1`)}?valueInputOption=RAW`,
+      { method: 'PUT', body: { values: [['board']] } },
+    )
+  }
+  const row: string[] = header.map(() => '')
+  row[t.iId] = task.id
+  row[t.iTitle] = task.title
+  row[iBoard] = boardJson(task.board)
+  await api(
+    `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${TASKS_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { method: 'POST', body: { values: [row] } },
+  )
+}
+
+/** Deletes the task's row from the Sheet. A task that is already gone counts as deleted. */
+export async function deleteTask(sheetId: string, taskId: string): Promise<void> {
+  const id = encodeURIComponent(sheetId)
+  const [t, meta] = await Promise.all([
+    readTable(sheetId),
+    api(`${API}/${id}?fields=sheets.properties(sheetId,title)`) as Promise<{
+      sheets?: { properties: { sheetId: number; title: string } }[]
+    }>,
+  ])
+  const row = rowsById(t).get(taskId)
+  const gid = meta.sheets?.find((s) => s.properties.title === TASKS_TAB)?.properties.sheetId
+  if (!row || gid === undefined) return
+  await api(`${API}/${id}:batchUpdate`, {
+    method: 'POST',
+    body: {
+      requests: [
+        { deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: row - 1, endIndex: row } } },
+      ],
+    },
   })
 }

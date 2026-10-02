@@ -8,16 +8,34 @@ interface Props {
   editable: boolean
   onMove: (id: string, x: number, y: number) => void
   onMoveEnd: (id: string) => void
+  selectedId: string | null
+  editingId: string | null
+  onSelect: (id: string | null) => void
+  onRename: (id: string, title: string) => void
+  onRenameDone: () => void
   camera: Camera
   setCamera: React.Dispatch<React.SetStateAction<Camera>>
 }
 
 const GRID = 40
 
-export function Board({ tasks, editable, onMove, onMoveEnd, camera, setCamera }: Props) {
+export function Board({
+  tasks,
+  editable,
+  onMove,
+  onMoveEnd,
+  selectedId,
+  editingId,
+  onSelect,
+  onRename,
+  onRenameDone,
+  camera,
+  setCamera,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const pinch = useRef<{ dist: number } | null>(null)
+  const tap = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const [panning, setPanning] = useState(false)
 
   // Wheel: zoom centered on the cursor (non-passive listener so we can preventDefault).
@@ -38,6 +56,7 @@ export function Board({ tasks, editable, onMove, onMoveEnd, camera, setCamera }:
   const onPointerDown = (e: React.PointerEvent) => {
     ref.current!.setPointerCapture(e.pointerId)
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    tap.current = pointers.current.size === 1 ? { x: e.clientX, y: e.clientY, moved: false } : null
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()]
       pinch.current = { dist: Math.hypot(a.x - b.x, a.y - b.y) }
@@ -51,6 +70,7 @@ export function Board({ tasks, editable, onMove, onMoveEnd, camera, setCamera }:
       if (!prev) return
       const cur = { x: e.clientX, y: e.clientY }
       pointers.current.set(e.pointerId, cur)
+      if (tap.current && Math.hypot(cur.x - tap.current.x, cur.y - tap.current.y) > 4) tap.current.moved = true
       const rect = ref.current!.getBoundingClientRect()
 
       if (pointers.current.size === 2 && pinch.current) {
@@ -71,6 +91,9 @@ export function Board({ tasks, editable, onMove, onMoveEnd, camera, setCamera }:
   )
 
   const onPointerUp = (e: React.PointerEvent) => {
+    // A press on the empty background that did not move deselects the current note.
+    if (tap.current && !tap.current.moved && e.type === 'pointerup') onSelect(null)
+    tap.current = null
     pointers.current.delete(e.pointerId)
     if (pointers.current.size < 2) pinch.current = null
     if (pointers.current.size === 0) setPanning(false)
@@ -102,8 +125,13 @@ export function Board({ tasks, editable, onMove, onMoveEnd, camera, setCamera }:
             task={t}
             zoom={camera.zoom}
             editable={editable}
+            selected={t.id === selectedId}
+            editing={t.id === editingId}
             onMove={onMove}
             onMoveEnd={onMoveEnd}
+            onSelect={onSelect}
+            onRename={onRename}
+            onRenameDone={onRenameDone}
           />
         ))}
       </div>
