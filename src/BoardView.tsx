@@ -4,7 +4,7 @@ import { fitCamera, zoomAt } from './board/camera'
 import { NOTE_SIZE } from './constants'
 import { demoTasks } from './data'
 import { AuthRequiredError, signIn } from './google/auth'
-import { fetchSheet } from './google/sheets'
+import { applySetupFix, fetchSheet, SheetError, type SetupFix } from './google/sheets'
 import { rememberSheet } from './recent'
 import type { Camera, Task } from './types'
 
@@ -13,10 +13,16 @@ export type Source = { kind: 'demo' } | { kind: 'sheet'; id: string }
 type Status =
   | { kind: 'loading' }
   | { kind: 'signin' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: string; fix?: SetupFix }
   | { kind: 'ready' }
 
 const POLL_MS = 30_000
+
+const FIX_LABEL: Record<SetupFix['kind'], string> = {
+  empty: 'Add header row now',
+  'no-tab': 'Create Tasks tab now',
+  'missing-columns': 'Add missing columns now',
+}
 
 export function BoardView({ source }: { source: Source }) {
   const isDemo = source.kind === 'demo'
@@ -54,7 +60,13 @@ export function BoardView({ source }: { source: Source }) {
       } catch (e) {
         if (background) return // keep showing what we have; the next poll will retry
         if (e instanceof AuthRequiredError) setStatus({ kind: 'signin' })
-        else setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+        else {
+          setStatus({
+            kind: 'error',
+            message: e instanceof Error ? e.message : String(e),
+            fix: e instanceof SheetError ? e.fix : undefined,
+          })
+        }
       }
     },
     [sheetId],
@@ -79,6 +91,22 @@ export function BoardView({ source }: { source: Source }) {
       await load(false)
     } catch (e) {
       if (!(e instanceof AuthRequiredError)) {
+        setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+      }
+    }
+  }
+
+  const onFix = async (fix: SetupFix) => {
+    if (!sheetId) return
+    setStatus({ kind: 'loading' })
+    try {
+      await signIn(true) // asks for edit permission; must run inside the click
+      await applySetupFix(sheetId, fix)
+      await load(false)
+    } catch (e) {
+      if (e instanceof AuthRequiredError) {
+        setStatus({ kind: 'error', message: 'Edit permission was not granted.', fix })
+      } else {
         setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
       }
     }
@@ -146,6 +174,10 @@ export function BoardView({ source }: { source: Source }) {
 
       <div className="badge">{editable ? 'Edit mode' : 'Read-only'}</div>
 
+      {status.kind === 'ready' && tasks.length === 0 && (
+        <div className="empty-hint">No tasks yet. Add rows with an id and a title in the Sheet, then refresh.</div>
+      )}
+
       {warnings.length > 0 && <div className="warnings">{warnings.join(' ')}</div>}
 
       {status.kind !== 'ready' && (
@@ -164,6 +196,11 @@ export function BoardView({ source }: { source: Source }) {
               <>
                 <p className="error">{status.message}</p>
                 <div className="row">
+                  {status.fix && (
+                    <button className="primary" onClick={() => void onFix(status.fix!)}>
+                      {FIX_LABEL[status.fix.kind]}
+                    </button>
+                  )}
                   <button onClick={() => void load(false)}>Retry</button>
                   <a className="button" href="#/">
                     Back

@@ -5,7 +5,22 @@ import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets'
 
-export class SheetError extends Error {}
+/** A problem with the Sheet's structure that we can repair for the user. */
+export type SetupFix =
+  | { kind: 'empty' }
+  | { kind: 'no-tab' }
+  | { kind: 'missing-columns'; columns: string[] }
+
+export class SheetError extends Error {
+  constructor(
+    message: string,
+    readonly fix?: SetupFix,
+  ) {
+    super(message)
+  }
+}
+
+const HEADER = ['id', 'title', 'board']
 
 export interface SheetData {
   title: string
@@ -22,12 +37,25 @@ export function parseSheetId(input: string): string | null {
   return /^[A-Za-z0-9_-]{20,}$/.test(s) ? s : null
 }
 
-async function api(url: string, retry = true): Promise<unknown> {
-  const token = await getToken()
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+interface ApiOptions {
+  method?: 'GET' | 'PUT' | 'POST'
+  body?: unknown
+  write?: boolean
+}
+
+async function api(url: string, opts: ApiOptions = {}, retry = true): Promise<unknown> {
+  const token = await getToken(opts.write)
+  const res = await fetch(url, {
+    method: opts.method ?? 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  })
   if (res.status === 401) {
     invalidateToken()
-    if (retry) return api(url, false)
+    if (retry) return api(url, opts, false)
     throw new AuthRequiredError()
   }
   if (res.ok) return res.json()
@@ -39,11 +67,15 @@ async function api(url: string, retry = true): Promise<unknown> {
     /* non-JSON error body */
   }
   if (res.status === 403) {
-    throw new SheetError("You don't have access to this Sheet. Ask its owner to share it with you.")
+    throw new SheetError(
+      opts.write
+        ? "You don't have edit access to this Sheet. Ask its owner, or add the columns yourself."
+        : "You don't have access to this Sheet. Ask its owner to share it with you.",
+    )
   }
   if (res.status === 404) throw new SheetError('Sheet not found. Check the link.')
   if (res.status === 400 && /Unable to parse range/i.test(detail)) {
-    throw new SheetError(`This Sheet has no tab named "${TASKS_TAB}".`)
+    throw new SheetError(`This Sheet has no tab named "${TASKS_TAB}".`, { kind: 'no-tab' })
   }
   if (res.status === 429) throw new SheetError('Google rate limit reached. Try again in a minute.')
   throw new SheetError(detail || `Google Sheets error (${res.status}).`)
@@ -79,13 +111,16 @@ function parseBoard(raw: unknown): Partial<BoardInfo> {
 }
 
 export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string[] } {
-  if (rows.length === 0) throw new SheetError(`The "${TASKS_TAB}" tab is empty. Add a header row first.`)
+  if (rows.length === 0) throw new SheetError(`The "${TASKS_TAB}" tab is empty. It needs a header row.`, { kind: 'empty' })
 
   const header = rows[0].map((h) => String(h ?? '').trim().toLowerCase())
   const col = (name: string) => header.indexOf(name)
   const missing = REQUIRED_COLUMNS.filter((c) => col(c) < 0)
   if (missing.length) {
-    throw new SheetError(`Missing column(s) in the header row: ${missing.join(', ')}.`)
+    throw new SheetError(`Missing column(s) in the header row: ${missing.join(', ')}.`, {
+      kind: 'missing-columns',
+      columns: HEADER.filter((c) => col(c) < 0),
+    })
   }
   const [iId, iTitle, iBoard] = [col('id'), col('title'), col('board')]
 
@@ -129,4 +164,41 @@ function autoPlace(tasks: Task[]) {
       t.board.x = startX + (i % cols) * NOTE_STEP
       t.board.y = startY + Math.floor(i / cols) * NOTE_STEP
     })
+}
+
+function columnLetter(index: number): string {
+  let s = ''
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    s = String.fromCharCode(65 + ((n - 1) % 26)) + s
+  }
+  return s
+}
+
+/** Repairs the Sheet's structure. Needs write access: call signIn(true) from the click handler first. */
+export async function applySetupFix(sheetId: string, fix: SetupFix): Promise<void> {
+  const id = encodeURIComponent(sheetId)
+  const put = (range: string, row: string[]) =>
+    api(`${API}/${id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
+      method: 'PUT',
+      write: true,
+      body: { values: [row] },
+    })
+
+  if (fix.kind === 'no-tab') {
+    await api(`${API}/${id}:batchUpdate`, {
+      method: 'POST',
+      write: true,
+      body: { requests: [{ addSheet: { properties: { title: TASKS_TAB } } }] },
+    })
+    await put(`${TASKS_TAB}!A1:${columnLetter(HEADER.length - 1)}1`, HEADER)
+  } else if (fix.kind === 'empty') {
+    await put(`${TASKS_TAB}!A1:${columnLetter(HEADER.length - 1)}1`, HEADER)
+  } else {
+    // Append the missing columns right after the existing header cells.
+    const res = (await api(`${API}/${id}/values/${encodeURIComponent(`${TASKS_TAB}!1:1`)}`)) as {
+      values?: unknown[][]
+    }
+    const start = res.values?.[0]?.length ?? 0
+    await put(`${TASKS_TAB}!${columnLetter(start)}1:${columnLetter(start + fix.columns.length - 1)}1`, fix.columns)
+  }
 }
