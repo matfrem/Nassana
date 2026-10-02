@@ -1,25 +1,25 @@
 # Nassana
 
-Board 2D infini (pan / zoom façon Miro) qui affiche les lignes d'un Google Sheets comme des post-it.
-La position et la couleur de chaque post-it sont stockées dans la colonne `board` du Sheet.
+Infinite 2D board (Miro-style pan / zoom) that displays the rows of a Google Sheet as sticky notes.
+Each note's position and color are stored in the `board` column of the Sheet.
 
-## Développement
+## Development
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Déploiement
+## Deployment
 
-GitHub Pages via `.github/workflows/deploy.yml` (push sur `main`).
-Dans le repo : Settings → Pages → Source : **GitHub Actions**.
+GitHub Pages via `.github/workflows/deploy.yml` (on push to `main`).
+In the repo: Settings → Pages → Source: **GitHub Actions**.
 
-## État
+## Status
 
-- [x] Canvas infini : pan, zoom centré curseur, pinch tactile
-- [x] Mode lecture seule / Edit, drag des post-it (données factices)
-- [ ] Connexion Google + lecture du Sheet
-- [ ] Sauvegarde des positions, couleur, renommage
-- [ ] Dessin sur le board
-- [ ] Création / suppression de tâches
+- [x] Infinite canvas: pan, cursor-centered zoom, touch pinch
+- [x] Read-only / Edit mode, note dragging (placeholder data)
+- [ ] Google sign-in + reading the Sheet
+- [ ] Saving positions, color, renaming
+- [ ] Drawing on the board
+- [ ] Creating / deleting tasks

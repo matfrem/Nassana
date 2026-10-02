@@ -20,13 +20,13 @@ export function Board({ tasks, editable, onMove, onMoveEnd, camera, setCamera }:
   const pinch = useRef<{ dist: number } | null>(null)
   const [panning, setPanning] = useState(false)
 
-  // Molette : zoom centré sur le curseur (listener non-passif pour pouvoir preventDefault).
+  // Wheel: zoom centered on the cursor (non-passive listener so we can preventDefault).
   useEffect(() => {
     const el = ref.current!
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const rect = el.getBoundingClientRect()
-      // ctrl+molette = pinch trackpad : deltas plus petits, on amplifie.
+      // ctrl+wheel = trackpad pinch: smaller deltas, so amplify.
       const speed = e.ctrlKey ? 0.01 : 0.0015
       const factor = Math.exp(-e.deltaY * speed)
       setCamera((c) => zoomAt(c, e.clientX - rect.left, e.clientY - rect.top, c.zoom * factor))

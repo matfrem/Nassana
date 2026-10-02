@@ -17,7 +17,7 @@ export default function App() {
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, board: { ...t.board, x, y } } : t)))
   }, [])
 
-  // Plus tard : écriture de la colonne `board` dans le Sheet.
+  // Later: write the `board` column to the Sheet.
   const onMoveEnd = useCallback((_id: string) => {}, [])
 
   const zoomBy = (f: number) =>
@@ -44,16 +44,16 @@ export default function App() {
       <div className="toolbar">
         <strong>Nassana</strong>
         <button className={editable ? 'primary' : ''} onClick={() => setEditable((v) => !v)}>
-          {editable ? '✓ Terminer' : '✎ Edit'}
+          {editable ? '✓ Done' : '✎ Edit'}
         </button>
         <span className="sep" />
-        <button onClick={() => zoomBy(1 / 1.25)} aria-label="Dézoomer">−</button>
+        <button onClick={() => zoomBy(1 / 1.25)} aria-label="Zoom out">−</button>
         <button onClick={() => setCamera((c) => zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, 1))}>
           {Math.round(camera.zoom * 100)}%
         </button>
-        <button onClick={() => zoomBy(1.25)} aria-label="Zoomer">+</button>
+        <button onClick={() => zoomBy(1.25)} aria-label="Zoom in">+</button>
       </div>
-      <div className="badge">{editable ? 'Mode édition' : 'Lecture seule'}</div>
+      <div className="badge">{editable ? 'Edit mode' : 'Read-only'}</div>
     </>
   )
 }

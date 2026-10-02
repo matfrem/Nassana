@@ -8,7 +8,7 @@ interface Props {
   zoom: number
   editable: boolean
   onMove: (id: string, x: number, y: number) => void
-  /** Appelé à la fin d'un déplacement (c'est là qu'on sauvegardera dans le Sheet). */
+  /** Called when a drag ends (this is where we will save to the Sheet). */
   onMoveEnd: (id: string) => void
 }
 
@@ -16,7 +16,7 @@ export function StickyNote({ task, zoom, editable, onMove, onMoveEnd }: Props) {
   const drag = useRef<{ px: number; py: number; x: number; y: number } | null>(null)
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (!editable || e.button !== 0) return // en lecture : on laisse remonter -> pan du board
+    if (!editable || e.button !== 0) return // read-only: let the event bubble up -> board pan
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     drag.current = { px: e.clientX, py: e.clientY, x: task.board.x, y: task.board.y }

@@ -3,21 +3,21 @@ import type { Task } from './types'
 const COLORS = ['#FFE066', '#FFADAD', '#9BF6FF', '#CAFFBF', '#FFC6FF', '#FDFFB6']
 
 const TITLES = [
-  'Préparer la réunion',
-  'Relire le contrat',
-  'Appeler le client',
-  'Maquette page d’accueil',
-  'Mettre à jour la doc',
-  'Corriger le bug #42',
-  'Planifier le sprint',
-  'Commander le matériel',
-  'Revue de code',
-  'Envoyer la facture',
-  'Atelier design',
-  'Veille techno',
+  'Prepare the meeting',
+  'Review the contract',
+  'Call the client',
+  'Homepage mockup',
+  'Update the docs',
+  'Fix bug #42',
+  'Plan the sprint',
+  'Order equipment',
+  'Code review',
+  'Send the invoice',
+  'Design workshop',
+  'Tech watch',
 ]
 
-/** Données factices en attendant le branchement Google Sheets. */
+/** Placeholder data until Google Sheets is wired in. */
 export function demoTasks(): Task[] {
   return TITLES.map((title, i) => ({
     id: `demo-${i}`,

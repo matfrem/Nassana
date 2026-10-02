@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// base relatif : fonctionne sur GitHub Pages (https://<user>.github.io/Nassana/) comme en local
+// Relative base: works on GitHub Pages (https://<user>.github.io/Nassana/) and locally
 export default defineConfig({
   base: './',
   plugins: [react()],

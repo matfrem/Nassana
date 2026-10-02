@@ -12,7 +12,7 @@ export interface Task {
 }
 
 export interface Camera {
-  /** Position du coin haut-gauche du monde visible, en pixels écran. */
+  /** Top-left corner of the visible world, in screen pixels. */
   x: number
   y: number
   zoom: number
