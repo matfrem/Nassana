@@ -1,7 +1,6 @@
 import { useRef } from 'react'
+import { NOTE_SIZE } from '../constants'
 import type { Task } from '../types'
-
-export const NOTE_SIZE = 180
 
 interface Props {
   task: Task

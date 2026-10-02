@@ -1,6 +1,5 @@
 import type { Task } from './types'
-
-const COLORS = ['#FFE066', '#FFADAD', '#9BF6FF', '#CAFFBF', '#FFC6FF', '#FDFFB6']
+import { NOTE_COLORS as COLORS } from './constants'
 
 const TITLES = [
   'Prepare the meeting',
