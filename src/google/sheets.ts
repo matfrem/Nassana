@@ -203,3 +203,46 @@ export async function applySetupFix(sheetId: string, fix: SetupFix): Promise<voi
     await put(`${TASKS_TAB}!${columnLetter(start)}1:${columnLetter(start + fix.columns.length - 1)}1`, fix.columns)
   }
 }
+
+/**
+ * Writes the `board` cell of the given tasks, locating each row by id (never by
+ * position, so sorting or inserting rows in the Sheet cannot misdirect a write).
+ * Adds the `board` column if the header does not have it yet.
+ */
+export async function saveBoards(sheetId: string, items: { id: string; board: BoardInfo }[]): Promise<void> {
+  if (items.length === 0) return
+  const id = encodeURIComponent(sheetId)
+  const res = (await api(
+    `${API}/${id}/values/${encodeURIComponent(TASKS_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
+  )) as { values?: unknown[][] }
+  const rows = res.values ?? []
+  if (rows.length === 0) throw new SheetError(`The "${TASKS_TAB}" tab is empty.`, { kind: 'empty' })
+
+  const header = rows[0].map((h) => String(h ?? '').trim().toLowerCase())
+  const iId = header.indexOf('id')
+  if (iId < 0) throw new SheetError('Missing column(s) in the header row: id.', { kind: 'missing-columns', columns: ['id'] })
+
+  let iBoard = header.indexOf('board')
+  const data: { range: string; values: string[][] }[] = []
+  if (iBoard < 0) {
+    iBoard = header.length
+    data.push({ range: `${TASKS_TAB}!${columnLetter(iBoard)}1`, values: [['board']] })
+  }
+
+  const rowOf = new Map<string, number>()
+  rows.forEach((r, i) => {
+    if (i > 0) rowOf.set(String(r[iId] ?? '').trim(), i + 1) // 1-based sheet row
+  })
+  for (const { id: taskId, board } of items) {
+    const row = rowOf.get(taskId)
+    if (!row) continue // the row was deleted in the meantime
+    const value = JSON.stringify({ x: Math.round(board.x), y: Math.round(board.y), color: board.color })
+    data.push({ range: `${TASKS_TAB}!${columnLetter(iBoard)}${row}`, values: [[value]] })
+  }
+  if (data.length === 0) return
+
+  await api(`${API}/${id}/values:batchUpdate`, {
+    method: 'POST',
+    body: { valueInputOption: 'RAW', data },
+  })
+}

@@ -5,7 +5,7 @@ import { NOTE_SIZE } from './constants'
 import { demoTasks } from './data'
 import { AuthRequiredError, signIn } from './google/auth'
 import { pickSheet } from './google/picker'
-import { applySetupFix, fetchSheet, SheetError, type SetupFix } from './google/sheets'
+import { applySetupFix, fetchSheet, saveBoards, SheetError, type SetupFix } from './google/sheets'
 import { rememberSheet } from './recent'
 import type { Camera, Task } from './types'
 
@@ -18,6 +18,9 @@ type Status =
   | { kind: 'ready' }
 
 const POLL_MS = 30_000
+const SAVE_DELAY_MS = 800
+
+type SaveState = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved' } | { kind: 'error'; message: string }
 
 const FIX_LABEL: Record<Exclude<SetupFix['kind'], 'pick'>, string> = {
   empty: 'Add header row now',
@@ -39,6 +42,13 @@ export function BoardView({ source }: { source: Source }) {
     fitCamera(isDemo ? demoTasks().map((t) => t.board) : [], NOTE_SIZE, window.innerWidth, window.innerHeight),
   )
   const fitted = useRef(isDemo)
+
+  const [save, setSave] = useState<SaveState>({ kind: 'idle' })
+  const tasksRef = useRef(tasks)
+  tasksRef.current = tasks
+  const dirty = useRef(new Set<string>())
+  const timer = useRef<ReturnType<typeof setTimeout>>()
+  const saving = useRef<Promise<void>>(Promise.resolve())
 
   const load = useCallback(
     async (background: boolean) => {
@@ -122,16 +132,58 @@ export function BoardView({ source }: { source: Source }) {
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, board: { ...t.board, x, y } } : t)))
   }, [])
 
-  // Later: write the `board` column to the Sheet.
-  const onMoveEnd = useCallback((_id: string) => {}, [])
+  /** Writes pending positions to the Sheet. Calls are chained so writes never overlap. */
+  const flush = useCallback((): Promise<void> => {
+    clearTimeout(timer.current)
+    if (!sheetId) return Promise.resolve()
+    saving.current = saving.current.then(async () => {
+      if (dirty.current.size === 0) return
+      const ids = new Set(dirty.current)
+      dirty.current.clear()
+      // Also persist auto-placed notes the first time: otherwise they would jump
+      // as soon as other notes get a saved position.
+      const items = tasksRef.current.filter((t) => ids.has(t.id) || t.autoPlaced)
+      setSave({ kind: 'saving' })
+      try {
+        await saveBoards(sheetId, items.map((t) => ({ id: t.id, board: t.board })))
+        const saved = new Set(items.map((t) => t.id))
+        setTasks((ts) => ts.map((t) => (saved.has(t.id) ? { ...t, autoPlaced: false } : t)))
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        ids.forEach((id) => dirty.current.add(id)) // keep them for the next attempt
+        setSave({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+      }
+    })
+    return saving.current
+  }, [sheetId])
+
+  const onMoveEnd = useCallback(
+    (id: string) => {
+      if (!sheetId) return
+      dirty.current.add(id)
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
+    },
+    [sheetId, flush],
+  )
+
+  const toggleEdit = async () => {
+    if (editable) {
+      await flush() // do not leave edit mode (which resumes polling) with unsaved moves
+      setEditable(false)
+    } else {
+      setSave({ kind: 'idle' })
+      setEditable(true)
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setEditable(false)
+      if (e.key === 'Escape') void flush().then(() => setEditable(false))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [flush])
 
   const zoomTo = (f: number | 'reset') =>
     setCamera((c) =>
@@ -157,9 +209,7 @@ export function BoardView({ source }: { source: Source }) {
         <span className="sep" />
         <button
           className={editable ? 'primary' : ''}
-          disabled={!isDemo}
-          title={isDemo ? undefined : 'Saving to the Sheet is not available yet'}
-          onClick={() => setEditable((v) => !v)}
+          onClick={() => void toggleEdit()}
         >
           {editable ? '✓ Done' : '✎ Edit'}
         </button>
@@ -178,7 +228,21 @@ export function BoardView({ source }: { source: Source }) {
         <button onClick={() => zoomTo(1.25)} aria-label="Zoom in">+</button>
       </div>
 
-      <div className="badge">{editable ? 'Edit mode' : 'Read-only'}</div>
+      <div className={`badge${save.kind === 'error' ? ' badge-error' : ''}`}>
+        {save.kind === 'error' ? (
+          <>
+            {save.message} <button onClick={() => void flush()}>Retry</button>
+          </>
+        ) : save.kind === 'saving' ? (
+          'Saving…'
+        ) : save.kind === 'saved' ? (
+          'Saved ✓'
+        ) : editable ? (
+          'Edit mode'
+        ) : (
+          'Read-only'
+        )}
+      </div>
 
       {status.kind === 'ready' && tasks.length === 0 && (
         <div className="empty-hint">No tasks yet. Add rows with an id and a title in the Sheet, then refresh.</div>

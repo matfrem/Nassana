@@ -20,7 +20,8 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Infinite canvas: pan, cursor-centered zoom, touch pinch
 - [x] Read-only / Edit mode, note dragging (placeholder data)
 - [x] Google sign-in + reading the Sheet (read-only, polls every 30s)
-- [ ] Saving positions, color, renaming
+- [x] Saving positions (debounced, by row id)
+- [ ] Color, renaming
 - [ ] Drawing on the board
 - [ ] Creating / deleting tasks
 

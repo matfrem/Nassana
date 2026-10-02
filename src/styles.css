@@ -208,3 +208,21 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+.toolbar { max-width: calc(100vw - 16px); white-space: nowrap; }
+.badge-error { background: #ffe5e5; color: #8a1c1c; border-color: #e5a1a1; max-width: calc(100vw - 24px); }
+.badge button {
+  font: inherit;
+  margin-left: 6px;
+  padding: 0 8px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+@media (max-width: 520px) {
+  .toolbar { gap: 3px; padding: 4px 6px; }
+  .toolbar .sheet-title { display: none; }
+  .toolbar button { min-width: 30px; padding: 4px 8px; }
+  .toolbar .sep { margin: 0 2px; }
+}
