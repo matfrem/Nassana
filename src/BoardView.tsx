@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Board, type StrokeRef, type Tool } from './board/Board'
 import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
 import { ARROW_MODES, encodeLink } from './board/links'
+import { childrenOf, cleanParents, tucked as tuckedNotes, wouldCycle, type Parents } from './board/stacks'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE_HEADER } from './constants'
@@ -131,6 +132,18 @@ export function BoardView({ source }: { source: Source }) {
   const linksRef = useRef(links)
   linksRef.current = links
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null)
+  /** Stacks: child id -> parent id, and the parents whose stack is spread open. Both live in the Sheet (`_board`). */
+  const [parents, setParents] = useState<Parents>({})
+  const parentsRef = useRef(parents)
+  parentsRef.current = parents
+  const [openStacks, setOpenStacks] = useState<Set<string>>(() => new Set())
+  const openRef = useRef(openStacks)
+  openRef.current = openStacks
+  /** True for a moment after a stack opens/closes: notes glide instead of jumping. */
+  const [stackAnim, setStackAnim] = useState(false)
+  const stackTimer = useRef<ReturnType<typeof setTimeout>>()
+  const knownParents = useRef(new Set<string>())
+  const knownOpen = useRef(new Set<string>())
   /** Links whose options changed, still to be rewritten in the Sheet. */
   const dirtyLinks = useRef(new Set<string>())
   const dirtyZones = useRef(new Set<string>())
@@ -201,6 +214,10 @@ export function BoardView({ source }: { source: Source }) {
           setStrokes(board.strokes)
           setZones(board.zones)
           setLinks(board.links)
+          setParents(cleanParents(board.parents, new Set(tasks.map((t) => t.id))))
+          knownParents.current = new Set(Object.keys(board.parents))
+          knownOpen.current = new Set(board.open)
+          if (!background) setOpenStacks(new Set(board.open)) // a read-only viewer's own toggles survive the background refresh
           setColorRules(Object.fromEntries(board.colors.map((c) => [`${c.key}|${c.raw}`, c])))
           knownColors.current = new Set(board.colors.map(colorRowId))
         }
@@ -641,9 +658,12 @@ export function BoardView({ source }: { source: Source }) {
     markDirty(selectedId, 'board')
   }
 
-  const addNote = () => {
+  const addNote = (parentId?: string) => {
     const c = screenToWorld(camera, window.innerWidth / 2, window.innerHeight / 2)
-    const { x, y } = freeSpot(tasksRef.current, c.x - NOTE_SIZE / 2, c.y - NOTE_SIZE / 2)
+    const anchor = parentId ? tasksRef.current.find((t) => t.id === parentId) : undefined
+    const { x, y } = anchor
+      ? freeSpot(tasksRef.current, anchor.board.x + NOTE_SIZE + 20, anchor.board.y)
+      : freeSpot(tasksRef.current, c.x - NOTE_SIZE / 2, c.y - NOTE_SIZE / 2)
     const task: Task = {
       id: crypto.randomUUID().slice(0, 8),
       title: 'New note',
@@ -652,14 +672,20 @@ export function BoardView({ source }: { source: Source }) {
     setTasks((ts) => [...ts, task])
     setSelectedId(task.id)
     setEditingId(task.id)
+    if (parentId) {
+      setParents((ps) => ({ ...ps, [task.id]: parentId }))
+      setStackOpen(parentId, true)
+    }
     if (!sheetId) return
     setSave({ kind: 'saving' })
     void enqueue(async () => {
       try {
         await appendTask(sheetId, task)
+        if (parentId) await persistParents([{ child: task.id, parent: parentId }])
         setSave({ kind: 'saved' })
       } catch (e) {
         setTasks((ts) => ts.filter((t) => t.id !== task.id))
+        setParents((ps) => Object.fromEntries(Object.entries(ps).filter(([c]) => c !== task.id)))
         dirty.current.delete(task.id)
         fail(e)
       }
@@ -743,6 +769,88 @@ export function BoardView({ source }: { source: Source }) {
     timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
   }
 
+  /** Writes the `parent` row of notes (a null parent removes it). Runs inside a queued job. */
+  const persistParents = async (ops: { child: string; parent: string | null }[]) => {
+    if (!sheetId) return
+    for (const { child, parent } of ops) {
+      const row = `parent:${child}`
+      if (parent && knownParents.current.has(child)) await updateBoardRows(sheetId, [{ id: row, data: parent }])
+      else if (parent) {
+        await appendBoardRow(sheetId, row, 'parent', parent)
+        knownParents.current.add(child)
+      } else if (knownParents.current.has(child)) {
+        await deleteBoardRows(sheetId, [row])
+        knownParents.current.delete(child)
+      }
+    }
+  }
+
+  const persistOpen = async (id: string, open: boolean) => {
+    if (!sheetId || knownOpen.current.has(id) === open) return
+    if (open) await appendBoardRow(sheetId, `open:${id}`, 'open', '1')
+    else await deleteBoardRows(sheetId, [`open:${id}`])
+    if (open) knownOpen.current.add(id)
+    else knownOpen.current.delete(id)
+  }
+
+  /** Spread a stack open or tuck it away, with a short animation. Shared through the Sheet in Edit mode. */
+  const setStackOpen = (id: string, open: boolean) => {
+    clearTimeout(stackTimer.current)
+    setStackAnim(true)
+    stackTimer.current = setTimeout(() => setStackAnim(false), 450)
+    setOpenStacks((o) => {
+      const next = new Set(o)
+      if (open) next.add(id)
+      else next.delete(id)
+      return next
+    })
+    if (!sheetId || !editable) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await persistOpen(id, open)
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        fail(e)
+      }
+    })
+  }
+  const toggleStack = (id: string) => setStackOpen(id, !openRef.current.has(id))
+
+  /** Make `parent` the parent of `child` (null: detach). The stack spreads open and the child steps out next to its parent. */
+  const setParent = (child: string, parent: string | null) => {
+    if (parent && wouldCycle(parentsRef.current, child, parent)) return
+    setParents((ps) => {
+      const next = { ...ps }
+      if (parent) next[child] = parent
+      else delete next[child]
+      return next
+    })
+    if (parent) {
+      const p = tasksRef.current.find((t) => t.id === parent)
+      if (p) {
+        const spot = freeSpot(tasksRef.current.filter((t) => t.id !== child), p.board.x + NOTE_SIZE + 20, p.board.y)
+        setTasks((ts) => ts.map((t) => (t.id === child ? { ...t, board: { ...t.board, ...spot } } : t)))
+        markDirty(child, 'board')
+      }
+      setStackOpen(parent, true)
+    }
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await persistParents([{ child, parent }])
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        fail(e)
+        void load(true)
+      }
+    })
+  }
+
+  const stackKids = useMemo(() => childrenOf(parents), [parents])
+  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, openStacks), [tasks, parents, openStacks])
+
   const deleteSelected = () => {
     const task = tasks.find((t) => t.id === selectedId)
     if (!task) return
@@ -754,12 +862,28 @@ export function BoardView({ source }: { source: Source }) {
     dirty.current.delete(task.id)
     const linkIds = linksRef.current.filter((l) => l.from === task.id || l.to === task.id).map((l) => l.id)
     setLinks((ls) => ls.filter((l) => !linkIds.includes(l.id)))
+    // Its sub-tasks move up to its own parent (or become free notes); its stack row goes with it.
+    const up = parentsRef.current[task.id] ?? null
+    const orphans = Object.entries(parentsRef.current).filter(([, p]) => p === task.id).map(([c]) => c)
+    setParents((ps) => {
+      const next: Parents = {}
+      for (const [c, p] of Object.entries(ps)) {
+        if (c === task.id) continue
+        if (p === task.id) {
+          if (up) next[c] = up
+        } else next[c] = p
+      }
+      return next
+    })
+    setOpenStacks((o) => new Set([...o].filter((x) => x !== task.id)))
     if (!sheetId) return
     setSave({ kind: 'saving' })
     void enqueue(async () => {
       try {
         await deleteTask(sheetId, task.id)
         await deleteBoardRows(sheetId, linkIds) // its links go with it
+        await persistParents([{ child: task.id, parent: null }, ...orphans.map((child) => ({ child, parent: up }))])
+        await persistOpen(task.id, false)
         setSave({ kind: 'saved' })
       } catch (e) {
         fail(e)
@@ -1084,6 +1208,7 @@ export function BoardView({ source }: { source: Source }) {
           }
         }}
         noteView={noteView}
+        stack={{ tucked: tuckedMap, kids: stackKids, open: openStacks, animating: stackAnim, onToggle: toggleStack }}
         onChip={onChip}
         onNoteOpen={(id) => {
           setDetailId(id)
@@ -1155,7 +1280,7 @@ export function BoardView({ source }: { source: Source }) {
           )}
         </button>
         {editable && (
-          <button onClick={addNote} aria-label="Add note">
+          <button onClick={() => addNote()} aria-label="Add note">
             ＋<span className="label"> Note</span>
           </button>
         )}
@@ -1275,6 +1400,9 @@ export function BoardView({ source }: { source: Source }) {
           ))}
           <span className="sep" />
           <button onClick={() => setDetailId(selectedId)}>☰ Details</button>
+          <button onClick={() => addNote(selectedId)} aria-label="Add sub-task">
+            ＋ Sub-task
+          </button>
           <button onClick={duplicateSelected} aria-label="Duplicate">
             ⧉ Duplicate
           </button>
@@ -1473,6 +1601,10 @@ export function BoardView({ source }: { source: Source }) {
           onDescription={onDescription}
           onStatus={onStatus}
           onValue={onValue}
+          parentId={parents[detailId] ?? null}
+          parentChoices={tasks.filter((t) => t.id !== detailId && !wouldCycle(parents, detailId, t.id)).map((t) => ({ id: t.id, title: t.title }))}
+          onParent={setParent}
+          subtasks={(stackKids.get(detailId) ?? []).length}
           links={linksOf(detailId)}
           onRemoveLink={(id) => removeLinks([id])}
         />

@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NOTE_SIZE } from '../constants'
+import type { BoardInfo } from '../types'
 import type { Chip } from '../fields'
 import type { Task } from '../types'
 import { pathFor } from './ink'
@@ -35,6 +36,14 @@ interface Props {
   onChip: (chip: Chip) => void
   /** Multi-touch state from the board: while two fingers are down (or after a pinch began), a note must not move. */
   gesture: () => { multi: boolean; epoch: number }
+  /** Inside a closed stack: where the note it hides under sits (it slides there and disappears). */
+  tuckedInto: BoardInfo | null
+  /** Number of direct sub-tasks, whether their stack is open, and the toggle. */
+  subtasks: number
+  stackOpen: boolean
+  onStack: (id: string) => void
+  /** A stack just opened/closed: animate the move. */
+  gliding: boolean
   /** The note's stroke picked with the move tool. */
   selectedStrokeId: string | null
 }
@@ -60,8 +69,14 @@ export function StickyNote({
   onChip,
   gesture,
   selectedStrokeId,
+  tuckedInto,
+  subtasks,
+  stackOpen,
+  onStack,
+  gliding,
 }: Props) {
   const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean; epoch: number } | null>(null)
+  const [lifted, setLifted] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const cancelled = useRef(false)
   const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
@@ -89,6 +104,7 @@ export function StickyNote({
     const g = gesture()
     if (!g.multi && g.epoch === d.epoch) return false
     drag.current = null
+    setLifted(false)
     if (d.moved) onMoveEnd(task.id)
     return true
   }
@@ -100,6 +116,7 @@ export function StickyNote({
     const dy = e.clientY - d.py
     if (!d.moved && Math.hypot(dx, dy) < TAP_SLOP) return
     d.moved = true
+    setLifted(true)
     onMove(task.id, d.x + dx / zoom, d.y + dy / zoom)
   }
 
@@ -107,6 +124,7 @@ export function StickyNote({
     const d = drag.current
     if (!d || abortIfPinching()) return
     drag.current = null
+    setLifted(false)
     if (d.moved) onMoveEnd(task.id)
     else if (e.type === 'pointerup') {
       const prev = lastTap.current
@@ -128,9 +146,9 @@ export function StickyNote({
   return (
     <div
       data-note-id={task.id}
-      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}${dim ? ' dim' : ''}`}
+      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}${dim ? ' dim' : ''}${lifted ? ' lifted' : ''}${tuckedInto ? ' tucked' : ''}${gliding ? ' gliding' : ''}${subtasks > 0 && !stackOpen ? ' stacked' : ''}`}
       style={{
-        transform: `translate(${task.board.x}px, ${task.board.y}px)`,
+        transform: `translate(${(tuckedInto ?? task.board).x}px, ${(tuckedInto ?? task.board).y}px)`,
         width: NOTE_SIZE,
         height: NOTE_SIZE,
         background: color,
@@ -178,6 +196,18 @@ export function StickyNote({
             </button>
           ))}
         </div>
+      )}
+      {subtasks > 0 && !editing && (
+        <button
+          className="stack-badge"
+          aria-label={stackOpen ? `Tuck ${subtasks} sub-tasks` : `Show ${subtasks} sub-tasks`}
+          aria-expanded={stackOpen}
+          style={tooling ? { pointerEvents: 'none' } : undefined}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onStack(task.id)}
+        >
+          {stackOpen ? '▾' : '▤'} {subtasks}
+        </button>
       )}
       {task.drawing && task.drawing.length > 0 && (
         <svg className="note-ink" width={NOTE_SIZE} height={NOTE_SIZE}>

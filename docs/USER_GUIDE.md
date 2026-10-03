@@ -80,6 +80,15 @@ opens Details directly. The round handle at the bottom right resizes. Deleting a
 their borders and follows them. Tap the line (Edit mode, no tool) to cycle **→ arrow / ↔ both ways / — no arrow** or delete it.
 Links are not drawn between overlapping notes, and a link to a hidden note is hidden.
 
+## Stacks: tasks and sub-tasks
+
+- A note with sub-tasks looks like a stack (cards peeking out behind it) with a badge `▤ 3` (number of sub-tasks).
+- Tap the badge: the sub-tasks glide out of the stack and appear around it, joined to it by dotted lines; the badge becomes `▾ 3`. Tap again: they glide back and disappear. Sub-tasks can have their own sub-tasks (a tree): each level opens on its own badge.
+- Create one: select a note → **＋ Sub-task**, or open the note's details → **Parent**. Set Parent to "none" to free it again.
+- Sub-tasks are ordinary notes: move them anywhere, give them their own status/zone, color, links. A tucked sub-task is hidden wherever it sits.
+- Open/closed is shared through the Sheet (Edit mode); in read-only mode your toggles are local. Deleting a parent hands its sub-tasks to its own parent.
+- While you drag a note it lifts: shadow and a slight tilt.
+
 ## Colors, filters and hiding
 
 The **◐** button:

@@ -692,3 +692,45 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   max-width: calc(100vw - 16px);
 }
 .zone-bar { width: min(380px, calc(100vw - 16px)); }
+
+/* ---- stacks of tasks, and the lift of a dragged note ---- */
+.note { transition: opacity 0.15s, rotate 0.15s ease, scale 0.15s ease, box-shadow 0.15s ease; }
+.note.lifted {
+  rotate: 1.8deg;
+  scale: 1.03;
+  z-index: 2;
+  box-shadow: 0 22px 36px rgba(0, 0, 0, 0.32), 0 6px 10px rgba(0, 0, 0, 0.2);
+}
+.note.editable:active { box-shadow: 0 6px 14px rgba(0, 0, 0, 0.22); } /* superseded by .lifted once the note really moves */
+.note.lifted.editable:active { box-shadow: 0 22px 36px rgba(0, 0, 0, 0.32), 0 6px 10px rgba(0, 0, 0, 0.2); }
+.note.gliding { transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease, scale 0.4s ease, rotate 0.15s ease, box-shadow 0.15s ease; }
+.note.tucked {
+  opacity: 0;
+  scale: 0.85;
+  z-index: -1;
+  pointer-events: none;
+  visibility: hidden;
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease, scale 0.4s ease, visibility 0s linear 0.4s;
+}
+.note:not(.tucked).gliding { visibility: visible; }
+.note.stacked {
+  box-shadow: 7px 7px 0 -1px rgba(0, 0, 0, 0.14), 14px 14px 0 -2px rgba(0, 0, 0, 0.09), 0 6px 14px rgba(0, 0, 0, 0.22);
+}
+.stack-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transform-origin: bottom right;
+  scale: min(2.5, calc(1 / var(--zoom, 1)));
+}
+@media (prefers-reduced-motion: reduce) {
+  .note, .note.gliding, .note.tucked { transition: none; }
+}

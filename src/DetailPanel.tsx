@@ -24,12 +24,17 @@ interface Props {
   onDescription: (id: string, text: string) => void
   onStatus: (id: string, status: string) => void
   onValue: (id: string, field: Field, input: string | boolean) => void
+  parentId: string | null
+  /** Notes that may become this note's parent (not itself, not its own sub-tasks). */
+  parentChoices: { id: string; title: string }[]
+  onParent: (id: string, parentId: string | null) => void
+  subtasks: number
   links: LinkRow[]
   onRemoveLink: (id: string) => void
 }
 
 /** Side panel (bottom sheet on phones) with every column of the selected note. */
-export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitle, onDescription, onStatus, onValue, links, onRemoveLink }: Props) {
+export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitle, onDescription, onStatus, onValue, parentId, parentChoices, onParent, subtasks, links, onRemoveLink }: Props) {
   // Escape closes the panel (and only the panel).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -90,6 +95,25 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
             <p className="read">{status || '—'}</p>
           )}
         </label>
+
+        {(editable || parentId) && (
+          <label>
+            <span>Parent</span>
+            {editable ? (
+              <select value={parentId ?? ''} onChange={(e) => onParent(task.id, e.target.value || null)}>
+                <option value="">— none (free note)</option>
+                {parentChoices.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title || 'Untitled'}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="read">{parentChoices.find((c) => c.id === parentId)?.title ?? '—'}</p>
+            )}
+          </label>
+        )}
+        {subtasks > 0 && <p className="read">{subtasks} sub-task{subtasks > 1 ? 's' : ''}</p>}
 
         {links.length > 0 && (
           <div className="links-list">

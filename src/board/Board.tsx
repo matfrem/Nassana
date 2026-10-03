@@ -32,6 +32,8 @@ interface Props {
   /** How a note looks: its pills, whether it is filtered out, and its color. */
   noteView: (t: Task) => { chips: Chip[]; dim: boolean; hidden: boolean; color: string; ink: string }
   onChip: (chip: Chip) => void
+  /** Stacks of notes: which notes are tucked under another, how many sub-tasks each note has, which stacks are open. */
+  stack: { tucked: Map<string, string>; kids: Map<string, string[]>; open: Set<string>; animating: boolean; onToggle: (id: string) => void }
   /** A tap on a note while not editing (opens its details). */
   onNoteOpen: (id: string) => void
   links: Link[]
@@ -96,6 +98,7 @@ export function Board({
   onRename,
   onRenameDone,
   noteView,
+  stack,
   onChip,
   onNoteOpen,
   links,
@@ -453,7 +456,7 @@ export function Board({
       else {
         const w = world(e)
         const hit = editable && tool === 'none' ? linkItems.find((it) => distToSeg(it.seg, w.x, w.y) <= 14 / camRef.current.zoom) : undefined
-        if (hit) onLinkSelect(hit.link.id)
+        if (hit && !hit.link.id.startsWith('stack:')) onLinkSelect(hit.link.id)
         else onSelect(null)
       }
     }
@@ -467,13 +470,27 @@ export function Board({
   const level = camera.zoom < 0.45 ? 0 : camera.zoom < 0.8 ? 1 : 2
   const linkItems = useMemo<LinkItem[]>(() => {
     const byId = new Map(tasks.map((t) => [t.id, t]))
-    return links.flatMap((link) => {
+    const explicit = links.flatMap((link) => {
       const a = byId.get(link.from)
       const b = byId.get(link.to)
       const seg = a && b ? segmentBetween(a, b) : null
-      return a && b && seg && !noteView(a).hidden && !noteView(b).hidden ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim }] : []
+      return a && b && seg && !noteView(a).hidden && !noteView(b).hidden && !stack.tucked.has(a.id) && !stack.tucked.has(b.id)
+        ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim }]
+        : []
     })
-  }, [links, tasks, noteView])
+    // Spread-open stacks: a dotted line from each parent to its sub-tasks (derived, never stored).
+    for (const [parentId, kids] of stack.kids) {
+      const a = byId.get(parentId)
+      if (!a || !stack.open.has(parentId) || stack.tucked.has(parentId) || noteView(a).hidden) continue
+      for (const kid of kids) {
+        const b = byId.get(kid)
+        const seg = b ? segmentBetween(a, b) : null
+        if (!b || !seg || stack.tucked.has(kid) || noteView(b).hidden) continue
+        explicit.push({ link: { id: `stack:${kid}`, from: parentId, to: kid, arrow: 'none' }, seg, dim: noteView(a).dim || noteView(b).dim })
+      }
+    }
+    return explicit
+  }, [links, tasks, noteView, stack])
 
   const counts = useMemo(() => {
     const m = new Map<string, number>()
@@ -540,10 +557,18 @@ export function Board({
         {tasks.map((t) => {
           const v = noteView(t)
           if (v.hidden) return null
+          const anchor = stack.tucked.get(t.id)
+          const home = anchor ? tasks.find((n) => n.id === anchor)?.board : undefined
+          const kids = stack.kids.get(t.id)?.length ?? 0
           return (
           <StickyNote
             key={t.id}
             chips={v.chips}
+            tuckedInto={home ?? null}
+            subtasks={kids}
+            stackOpen={stack.open.has(t.id)}
+            gliding={stack.animating}
+            onStack={stack.onToggle}
             dim={v.dim}
             color={v.color}
             ink={v.ink}
