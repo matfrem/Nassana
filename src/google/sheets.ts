@@ -7,7 +7,7 @@ import { columnsOf, type Cell, type Column, type FieldMeta } from '../fields'
 import type { BoardInfo, Link, Stroke, Task, Zone } from '../types'
 import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
-const API = 'https://sheets.googleapis.com/v4/spreadsheets'
+export const API = 'https://sheets.googleapis.com/v4/spreadsheets'
 
 /** A problem with the Sheet's structure that we can repair for the user. */
 export type SetupFix =
@@ -50,7 +50,7 @@ interface ApiOptions {
   body?: unknown
 }
 
-async function api(url: string, opts: ApiOptions = {}, retry = true): Promise<unknown> {
+export async function api(url: string, opts: ApiOptions = {}, retry = true): Promise<unknown> {
   const token = await getToken()
   const res = await fetch(url, {
     method: opts.method ?? 'GET',

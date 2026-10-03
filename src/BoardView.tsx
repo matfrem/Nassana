@@ -7,6 +7,7 @@ import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
 import { demoTasks } from './data'
 import { DetailPanel, type LinkRow } from './DetailPanel'
+import { ColumnsPage } from './ColumnsPage'
 import { ZonePanel } from './ZonePanel'
 import {
   buildFields,
@@ -99,6 +100,7 @@ export function BoardView({ source }: { source: Source }) {
     }
   })
   const [viewMenu, setViewMenu] = useState(false)
+  const [showColumns, setShowColumns] = useState(false)
   const [zones, setZones] = useState<Zone[]>([])
   const zonesRef = useRef(zones)
   zonesRef.current = zones
@@ -1039,22 +1041,39 @@ export function BoardView({ source }: { source: Source }) {
             ▭<span className="label"> Zone</span>
           </button>
         )}
-        {fields.length > 0 && (
+        {(fields.length > 0 || (editable && sheetId)) && (
           <span className="menu-anchor">
             <button aria-label="View options" className={colorBy ? 'primary' : ''} onClick={() => setViewMenu((v) => !v)}>
               ◐
             </button>
             {viewMenu && (
               <div className="menu">
-                <strong>Color notes by</strong>
-                <button className={!colorBy ? 'on' : ''} onClick={() => setColorBy('')}>
-                  Manual color
-                </button>
-                {fields.map((f) => (
-                  <button key={f.key} className={colorBy === f.key ? 'on' : ''} onClick={() => setColorBy(f.key)}>
-                    {f.label}
-                  </button>
-                ))}
+                {fields.length > 0 && (
+                  <>
+                    <strong>Color notes by</strong>
+                    <button className={!colorBy ? 'on' : ''} onClick={() => setColorBy('')}>
+                      Manual color
+                    </button>
+                    {fields.map((f) => (
+                      <button key={f.key} className={colorBy === f.key ? 'on' : ''} onClick={() => setColorBy(f.key)}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </>
+                )}
+                {editable && sheetId && (
+                  <>
+                    <strong>Sheet</strong>
+                    <button
+                      onClick={() => {
+                        setViewMenu(false)
+                        setShowColumns(true)
+                      }}
+                    >
+                      ⚙ Edit columns…
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </span>
@@ -1217,6 +1236,19 @@ export function BoardView({ source }: { source: Source }) {
             </button>
           )}
         </div>
+      )}
+
+      {showColumns && sheetId && (
+        <ColumnsPage
+          sheetId={sheetId}
+          fields={fields}
+          tasks={tasks}
+          onClose={() => setShowColumns(false)}
+          onApplied={() => {
+            setShowColumns(false)
+            void load(false) // columns changed in the Sheet: read everything again
+          }}
+        />
       )}
 
       {zoneDetailId && zones.find((z) => z.id === zoneDetailId) && (

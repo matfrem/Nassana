@@ -108,3 +108,12 @@ a resize handle: nothing is moved while two fingers are down, and the finger lef
 When notes are colored by a column (the `◐` button), each value takes the background color the Sheet gives to the cells
 holding it (a fill, or the result of conditional formatting), read with the dropdown lists on load / refresh. Values whose
 cells have no fill keep the app's palette (or a red/orange/green tone for priorities). Note text switches to light on dark fills.
+
+## Columns page
+
+Edit mode → `◐` → **Edit columns…** opens a page that edits the Tasks tab's real columns: rename, order (↑↓), show on notes
+(the `#` suffix), type (text, number, date, checkbox, dropdown), dropdown values with a color each, add, delete, and hide
+the columns the app manages (`id`, `title`, `description`, `status`, `board`, `drawing`) in the Sheet. Changes are staged in
+the page; **Apply** lists them, re-checks that nobody changed the Sheet's structure, and sends them in a single `batchUpdate`
+(so the Sheet's version history can undo it). Dropdowns become data validation; their colors become one conditional-format
+rule per value, which the board reads back when coloring notes.
