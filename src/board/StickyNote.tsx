@@ -26,6 +26,8 @@ interface Props {
   dim: boolean
   /** Background color to show (the manual color, or one derived from a property). */
   color: string
+  /** Text color readable on `color`. */
+  ink: string
   /** 0: title only (zoomed out), 1: + pills, 2: + description. */
   level: 0 | 1 | 2
   /** A drawing tool is active: pills must not catch presses meant for drawing. */
@@ -52,6 +54,7 @@ export function StickyNote({
   chips,
   dim,
   color,
+  ink,
   level,
   tooling,
   onChip,
@@ -131,6 +134,7 @@ export function StickyNote({
         width: NOTE_SIZE,
         height: NOTE_SIZE,
         background: color,
+        color: ink,
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

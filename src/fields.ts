@@ -30,6 +30,8 @@ export interface FieldMeta {
   dateFormat?: boolean
   /** The column only accepts dates (validation), whether or not cells are formatted. */
   dateValidation?: boolean
+  /** Background color the Sheet gives to cells holding each value (value in lowercase -> `#rrggbb`). */
+  colors?: Record<string, string>
 }
 
 export interface Field extends Column {
@@ -37,6 +39,8 @@ export interface Field extends Column {
   options?: string[]
   /** Dates are stored as serial numbers (true) or as ISO text (false). */
   serial?: boolean
+  /** Colors the Sheet itself uses for this column's values. */
+  colors?: Record<string, string>
 }
 
 export function columnsOf(rawHeader: unknown[]): Column[] {
@@ -98,8 +102,9 @@ export function buildFields(columns: Column[], tasks: Task[], meta: Record<strin
     const m = meta[c.key] ?? {}
     const values = tasks.map((t) => t.values?.[c.key]).filter((v) => !isEmpty(v)) as Cell[]
     const all = (test: (v: Cell) => boolean) => values.length > 0 && values.every(test)
+    const withColors = <T extends Field>(f: T): T => (m.colors ? { ...f, colors: m.colors } : f)
 
-    if (m.options?.length) return { ...c, type: 'select', options: m.options }
+    if (m.options?.length) return withColors({ ...c, type: 'select', options: m.options })
     if (m.checkbox || all((v) => typeof v === 'boolean')) return { ...c, type: 'checkbox' }
     if (m.dateFormat || m.dateValidation) return { ...c, type: 'date', serial: !!m.dateFormat }
     // Without metadata: ISO text is a date; a "date-like" name with plausible serial numbers too.
@@ -107,9 +112,9 @@ export function buildFields(columns: Column[], tasks: Task[], meta: Record<strin
     if (/date|due|deadline|échéance|echeance/i.test(c.label) && all((v) => typeof v === 'number' && v > 20_000 && v < 80_000)) {
       return { ...c, type: 'date', serial: true }
     }
-    if (all((v) => typeof v === 'number')) return { ...c, type: 'number' }
+    if (all((v) => typeof v === 'number')) return withColors({ ...c, type: 'number' })
     if (all((v) => typeof v === 'string' && URL_RE.test(v))) return { ...c, type: 'link' }
-    return { ...c, type: 'text' }
+    return withColors({ ...c, type: 'text' })
   })
 }
 
@@ -133,7 +138,10 @@ export interface Chip {
   key: string
   /** Normalized value, what the quick filter compares. */
   raw: string
+  /** Shown on the pill (may carry the field's label). */
   text: string
+  /** The value alone, for legends and filters. */
+  value: string
   icon: string
   tone?: Tone
   /** Field label, for tooltips. */
@@ -154,14 +162,14 @@ export function chipFor(field: Field, v: Cell | undefined): Chip | null {
   switch (field.type) {
     case 'date': {
       const day = dayOf(v)
-      if (day === null) return { ...base, text: String(v), icon: '📅' }
+      if (day === null) return { ...base, text: String(v), value: String(v), icon: '📅' }
       const left = day - todayNumber()
-      return { ...base, text: formatDay(day), icon: '📅', tone: left < 0 ? 'red' : left <= 2 ? 'orange' : undefined }
+      return { ...base, text: formatDay(day), value: formatDay(day), icon: '📅', tone: left < 0 ? 'red' : left <= 2 ? 'orange' : undefined }
     }
     case 'number':
-      return { ...base, text: String(v), icon: '#' }
+      return { ...base, text: String(v), value: String(v), icon: '#' }
     case 'checkbox':
-      return v === true ? { ...base, text: field.label, icon: '✓', tone: 'green' } : null
+      return v === true ? { ...base, text: field.label, value: 'yes', icon: '✓', tone: 'green' } : null
     case 'link': {
       let host = String(v)
       try {
@@ -169,19 +177,29 @@ export function chipFor(field: Field, v: Cell | undefined): Chip | null {
       } catch {
         /* keep the raw text */
       }
-      return { ...base, text: host, icon: '🔗' }
+      return { ...base, text: host, value: host, icon: '🔗' }
     }
     case 'select': {
       const t = String(v)
-      return { ...base, text: t, icon: '', tone: TONES.find(([re]) => re.test(t))?.[1] }
+      return { ...base, text: t, value: t, icon: '', tone: TONES.find(([re]) => re.test(t))?.[1] }
     }
     default: {
       const t = String(v)
       const prio = /prio/i.test(field.label)
-      return { ...base, text: prio ? t : `${field.label}: ${t}`, icon: '', tone: prio ? TONES.find(([re]) => re.test(t))?.[1] : undefined }
+      return { ...base, text: prio ? t : `${field.label}: ${t}`, value: t, icon: '', tone: prio ? TONES.find(([re]) => re.test(t))?.[1] : undefined }
     }
   }
 }
 
 /** Pastel note colors for the tones, and a stable palette for everything else. */
 export const TONE_COLORS: Record<Tone, string> = { red: '#FFADAD', orange: '#FFD6A5', green: '#CAFFBF' }
+
+/** Readable text color (dark or light) for a given background color. */
+export function inkFor(hex: string): string {
+  const m = hex.match(/^#([0-9a-f]{6})$/i)
+  if (!m) return '#1f2328'
+  const n = parseInt(m[1], 16)
+  // Perceived luminance (Rec. 601): dark text on light colors, light text on dark ones.
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return lum > 0.55 ? '#1f2328' : '#f5f5f5'
+}

@@ -102,3 +102,9 @@ in the `_board` tab (`arrow` is `one`, `both` or `none`; older rows with a boole
 
 A second finger always turns the gesture into pan + zoom, even when the first finger is holding a note, a zone or
 a resize handle: nothing is moved while two fingers are down, and the finger left over does not start dragging afterwards.
+
+## Colors from the Sheet
+
+When notes are colored by a column (the `◐` button), each value takes the background color the Sheet gives to the cells
+holding it (a fill, or the result of conditional formatting), read with the dropdown lists on load / refresh. Values whose
+cells have no fill keep the app's palette (or a red/orange/green tone for priorities). Note text switches to light on dark fills.

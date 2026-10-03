@@ -11,6 +11,7 @@ import { ZonePanel } from './ZonePanel'
 import {
   buildFields,
   chipFor,
+  inkFor,
   rawOf,
   toCell,
   TONE_COLORS,
@@ -845,24 +846,29 @@ export function BoardView({ source }: { source: Source }) {
       const tone = chip?.tone
       seen.set(raw, {
         raw,
-        text: chip?.text ?? raw,
-        color: tone ? TONE_COLORS[tone] : NOTE_COLORS[distinct.indexOf(raw) % NOTE_COLORS.length],
+        text: chip?.value ?? raw,
+        // The color the Sheet itself gives that value wins; otherwise a tone (priorities) or a palette color.
+        color: f.colors?.[raw] ?? (tone ? TONE_COLORS[tone] : NOTE_COLORS[distinct.indexOf(raw) % NOTE_COLORS.length]),
       })
     }
     return { field: f, byRaw: seen }
   }, [fields, colorBy, tasks])
 
   const noteView = useCallback(
-    (t: Task) => ({
-      chips: shownFields.flatMap((f) => chipFor(f, t.values?.[f.key]) ?? []),
-      dim: filter ? rawOf(t.values?.[filter.key]) !== filter.raw : false,
-      color: colorScheme ? (colorScheme.byRaw.get(rawOf(t.values?.[colorScheme.field.key]))?.color ?? '#E5E7EB') : t.board.color,
-    }),
+    (t: Task) => {
+      const color = colorScheme ? (colorScheme.byRaw.get(rawOf(t.values?.[colorScheme.field.key]))?.color ?? '#E5E7EB') : t.board.color
+      return {
+        chips: shownFields.flatMap((f) => chipFor(f, t.values?.[f.key]) ?? []),
+        dim: filter ? rawOf(t.values?.[filter.key]) !== filter.raw : false,
+        color,
+        ink: inkFor(color), // a dark fill from the Sheet needs light text
+      }
+    },
     [shownFields, filter, colorScheme],
   )
 
   const onChip = (chip: Chip) =>
-    setFilter((f) => (f && f.key === chip.key && f.raw === chip.raw ? null : { key: chip.key, raw: chip.raw, text: chip.text, label: chip.label }))
+    setFilter((f) => (f && f.key === chip.key && f.raw === chip.raw ? null : { key: chip.key, raw: chip.raw, text: chip.value, label: chip.label }))
 
   const onDescription = (id: string, text: string) => {
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, description: text || undefined } : t)))

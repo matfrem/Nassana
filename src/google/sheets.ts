@@ -520,9 +520,34 @@ export async function deleteBoardRows(sheetId: string, ids: string[]): Promise<v
 // What the Sheet knows about its columns: dropdown lists, checkboxes, date formats
 // ---------------------------------------------------------------------------------
 
+interface Rgb {
+  red?: number
+  green?: number
+  blue?: number
+}
+
 interface GridCell {
+  effectiveValue?: { stringValue?: string; numberValue?: number; boolValue?: boolean }
+  effectiveFormat?: { backgroundColor?: Rgb }
   dataValidation?: { condition?: { type?: string; values?: { userEnteredValue?: string }[] } }
-  userEnteredFormat?: { numberFormat?: { type?: string } }
+  userEnteredFormat?: { numberFormat?: { type?: string }; backgroundColor?: Rgb }
+}
+
+/** `#rrggbb` for a cell fill, or null when the cell has none (or white, the default). */
+function fillOf(cell: GridCell | undefined): string | null {
+  // effectiveFormat includes conditional formatting; userEnteredFormat is the plain fill.
+  const c = cell?.effectiveFormat?.backgroundColor ?? cell?.userEnteredFormat?.backgroundColor
+  if (!c) return null
+  const to255 = (v?: number) => Math.round((v ?? 0) * 255)
+  const [r, g, b] = [to255(c.red), to255(c.green), to255(c.blue)]
+  if (r > 250 && g > 250 && b > 250) return null
+  return '#' + [r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')
+}
+
+function valueKey(cell: GridCell | undefined): string {
+  const v = cell?.effectiveValue
+  const raw = v?.stringValue ?? (v?.numberValue !== undefined ? String(v.numberValue) : v?.boolValue !== undefined ? String(v.boolValue) : '')
+  return raw.trim().toLowerCase()
 }
 
 /** `='Lists'!A1:A9` or `=A1:A9` (this tab) -> a range usable in the values API. */
@@ -546,7 +571,7 @@ export async function fetchFieldMeta(sheetId: string, columns: Column[], rowCoun
     const last = columnLetter(Math.max(...columns.map((c) => c.index)))
     const range = encodeURIComponent(`${TASKS_TAB}!A2:${last}${Math.min(rowCount + 1, 101)}`)
     const res = (await api(
-      `${API}/${id}?ranges=${range}&includeGridData=true&fields=sheets.data.rowData.values(dataValidation,userEnteredFormat.numberFormat.type)`,
+      `${API}/${id}?ranges=${range}&includeGridData=true&fields=sheets.data.rowData.values(dataValidation,effectiveValue,effectiveFormat.backgroundColor,userEnteredFormat(numberFormat.type,backgroundColor))`,
     )) as { sheets?: { data?: { rowData?: { values?: GridCell[] }[] }[] }[] }
     const rows = res.sheets?.[0]?.data?.[0]?.rowData ?? []
 
@@ -557,6 +582,10 @@ export async function fetchFieldMeta(sheetId: string, columns: Column[], rowCoun
         const cell = row.values?.[c.index]
         const rule = cell?.dataValidation?.condition
         const fmt = cell?.userEnteredFormat?.numberFormat?.type
+        // The fill the Sheet gives a value is the color we use for it when coloring notes by this column.
+        const fill = fillOf(cell)
+        const key = valueKey(cell)
+        if (fill && key) (m.colors ??= {})[key] ??= fill
         if (fmt === 'DATE' || fmt === 'DATE_TIME') m.dateFormat = true
         if (!rule?.type) continue
         const vals = (rule.values ?? []).map((v) => v.userEnteredValue ?? '')
@@ -570,7 +599,7 @@ export async function fetchFieldMeta(sheetId: string, columns: Column[], rowCoun
         } else if (rule.type === 'BOOLEAN') m.checkbox = true
         else if (rule.type.startsWith('DATE_')) m.dateValidation = true
       }
-      if (m.options || m.checkbox || m.dateFormat || m.dateValidation) meta[c.key] = m
+      if (m.options || m.checkbox || m.dateFormat || m.dateValidation || m.colors) meta[c.key] = m
     }
     return meta
   } catch (e) {

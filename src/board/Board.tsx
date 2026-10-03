@@ -30,7 +30,7 @@ interface Props {
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
   /** How a note looks: its pills, whether it is filtered out, and its color. */
-  noteView: (t: Task) => { chips: Chip[]; dim: boolean; color: string }
+  noteView: (t: Task) => { chips: Chip[]; dim: boolean; color: string; ink: string }
   onChip: (chip: Chip) => void
   /** A tap on a note while not editing (opens its details). */
   onNoteOpen: (id: string) => void
@@ -541,6 +541,7 @@ export function Board({
             chips={v.chips}
             dim={v.dim}
             color={v.color}
+            ink={v.ink}
             level={level}
             tooling={tool !== 'none'}
             selectedStrokeId={tool === 'move' && selectedStroke?.noteId === t.id ? selectedStroke.id : null}
