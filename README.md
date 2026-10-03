@@ -125,3 +125,11 @@ In Edit mode the legend's dots are color pickers: a color picked there is kept i
 and wins over the Sheet's own color. This exists because the Sheets API cannot read the colors of dropdown *chips*. Colors found
 in the Sheet are cell fills / conditional formatting; a fill shared by several values of a column (a row or banding color) is
 ignored. Rows that have a title but no id are listed in a warning with a **Give them an id** button.
+
+## Hiding values, one zone per status
+
+The legend (`◐` → Color notes by) toggles the visibility of a value: tap *Done* to hide every Done note, tap *To Do* to hide
+those too, tap *Done* again to show it. Hidden values add up, survive a change of the "color by" column (those of other
+columns appear as `Hide Status: To Do ✕` pills, plus **Show all**) and are remembered on the device. Tapping a pill on a note
+still shows only that value. In the zone tool, **One zone per status** creates a zone for each status that has none and moves
+the notes with that status into it (the new positions are saved).

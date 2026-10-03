@@ -676,3 +676,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .legend-item .dot-input::-webkit-color-swatch-wrapper { padding: 0; }
 .legend-item .dot-input::-webkit-color-swatch { border: 0; border-radius: 50%; }
 .warnings button { margin-left: 8px; font: inherit; font-size: 13px; padding: 1px 8px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+
+/* ---- legend items toggle the visibility of a value ---- */
+.viewbar .legend-item button.off { text-decoration: line-through; opacity: 0.55; }
+.viewbar .legend-item button.off .dot { opacity: 0.4; }

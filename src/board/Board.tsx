@@ -30,7 +30,7 @@ interface Props {
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
   /** How a note looks: its pills, whether it is filtered out, and its color. */
-  noteView: (t: Task) => { chips: Chip[]; dim: boolean; color: string; ink: string }
+  noteView: (t: Task) => { chips: Chip[]; dim: boolean; hidden: boolean; color: string; ink: string }
   onChip: (chip: Chip) => void
   /** A tap on a note while not editing (opens its details). */
   onNoteOpen: (id: string) => void
@@ -162,8 +162,12 @@ export function Board({
   camRef.current = camera
   const strokesRef = useRef(strokes)
   strokesRef.current = strokes
+  const noteViewRef = useRef(noteView)
+  noteViewRef.current = noteView
   const tasksRef = useRef(tasks)
   tasksRef.current = tasks
+  /** Notes that are not hidden: the only ones that can be drawn on, linked or hit. */
+  const visibleNotes = () => tasksRef.current.filter((t) => !noteViewRef.current(t).hidden)
 
   // A finger that lifts always stops counting, even if the element it was on is gone by then
   // (otherwise the board would think two fingers are still down and refuse to drag anything).
@@ -206,7 +210,7 @@ export function Board({
     const r = 14 / camRef.current.zoom // generous: it has to work with a fingertip
     const board = [...strokesRef.current].reverse().find((s) => hitsStroke(s, x, y, r))
     if (board) return { ref: { id: board.id }, p: board.p }
-    for (const t of [...tasksRef.current].reverse()) {
+    for (const t of visibleNotes().reverse()) {
       const lx = x - t.board.x
       const ly = y - t.board.y
       if (!t.drawing?.length || lx < -r || ly < -r || lx > NOTE_SIZE + r || ly > NOTE_SIZE + r) continue
@@ -237,7 +241,7 @@ export function Board({
 
   /** The topmost note under a world point, if any. */
   const noteAt = (x: number, y: number) =>
-    [...tasksRef.current]
+    visibleNotes()
       .reverse()
       .find((t) => x >= t.board.x && x <= t.board.x + NOTE_SIZE && y >= t.board.y && y <= t.board.y + NOTE_SIZE)
 
@@ -247,7 +251,7 @@ export function Board({
     const hits: { id: string; noteId?: string }[] = strokesRef.current
       .filter((s) => hitsStroke(s, w.x, w.y, r))
       .map((s) => ({ id: s.id }))
-    for (const t of tasksRef.current) {
+    for (const t of visibleNotes()) {
       const lx = w.x - t.board.x
       const ly = w.y - t.board.y
       if (!t.drawing?.length || lx < -r || ly < -r || lx > NOTE_SIZE + r || ly > NOTE_SIZE + r) continue
@@ -467,7 +471,7 @@ export function Board({
       const a = byId.get(link.from)
       const b = byId.get(link.to)
       const seg = a && b ? segmentBetween(a, b) : null
-      return a && b && seg ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim }] : []
+      return a && b && seg && !noteView(a).hidden && !noteView(b).hidden ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim }] : []
     })
   }, [links, tasks, noteView])
 
@@ -535,6 +539,7 @@ export function Board({
         <LinksLayer items={linkItems} selectedId={selectedLinkId} live={liveLink} zoom={camera.zoom} />
         {tasks.map((t) => {
           const v = noteView(t)
+          if (v.hidden) return null
           return (
           <StickyNote
             key={t.id}

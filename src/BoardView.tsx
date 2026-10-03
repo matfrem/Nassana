@@ -4,7 +4,7 @@ import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
 import { ARROW_MODES, encodeLink } from './board/links'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
-import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
+import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE_HEADER } from './constants'
 import { demoTasks } from './data'
 import { DetailPanel, type LinkRow } from './DetailPanel'
 import { ColumnsPage } from './ColumnsPage'
@@ -57,6 +57,14 @@ type Status =
 /** The task's value for a column; `status` is not a custom column but can be colored and filtered like one. */
 const valueOf = (t: Task, key: string) => (key === 'status' ? t.status : t.values?.[key])
 
+interface HideRule {
+  key: string
+  raw: string
+  /** For the pill: the value as written, and the column's label. */
+  text: string
+  label: string
+}
+
 const STATUS_FIELD: Field = { key: 'status', label: 'Status', index: -1, shown: false, type: 'text' }
 
 const POLL_MS = 30_000
@@ -105,6 +113,15 @@ export function BoardView({ source }: { source: Source }) {
       return (sheetId && localStorage.getItem(`nassana.colorBy.${sheetId}`)) || ''
     } catch {
       return ''
+    }
+  })
+  /** Values hidden from the board, kept across changes of the "color by" column and across reloads. */
+  const [hidden, setHidden] = useState<HideRule[]>(() => {
+    try {
+      const v = JSON.parse((sheetId && localStorage.getItem(`nassana.hidden.${sheetId}`)) || '[]')
+      return Array.isArray(v) ? v.filter((h) => h && typeof h.key === 'string' && typeof h.raw === 'string') : []
+    } catch {
+      return []
     }
   })
   const [viewMenu, setViewMenu] = useState(false)
@@ -538,6 +555,61 @@ export function BoardView({ source }: { source: Source }) {
     setTool('none')
   }
 
+  /** Statuses written in the Sheet that have no zone yet, in order of appearance. */
+  const missingStatuses = useMemo(() => {
+    const have = new Set(zones.map((z) => rawOf(z.name)))
+    const seen = new Map<string, string>()
+    for (const t of tasks) {
+      const s = t.status?.trim()
+      if (s && !have.has(rawOf(s)) && !seen.has(rawOf(s))) seen.set(rawOf(s), s)
+    }
+    return [...seen.values()]
+  }, [tasks, zones])
+
+  /** One zone for each status that has none, and every note with such a status moved into its zone. */
+  const createStatusZones = () => {
+    const names = missingStatuses
+    if (names.length === 0) return
+    const w = 440
+    const gap = 24
+    const step = NOTE_SIZE + 12
+    const isNew = (t: Task) => names.some((n) => rawOf(n) === rawOf(t.status))
+    const h = Math.max(
+      300,
+      ...names.map((n) => ZONE_HEADER + 32 + Math.max(1, Math.ceil(tasksRef.current.filter((t) => rawOf(t.status) === rawOf(n)).length / 2)) * step),
+    )
+    // Put the row of zones below everything that stays where it is (other notes, existing zones).
+    const boxes = [
+      ...tasksRef.current.filter((t) => !isNew(t)).map((t) => ({ x: t.board.x, b: t.board.y + NOTE_SIZE })),
+      ...zonesRef.current.map((z) => ({ x: z.x, b: z.y + z.h })),
+    ]
+    const c = screenToWorld(camera, window.innerWidth / 2, window.innerHeight / 2)
+    const total = names.length * w + (names.length - 1) * gap
+    const x0 = Math.round(boxes.length ? Math.min(...boxes.map((b) => b.x)) : c.x - total / 2)
+    const y0 = Math.round(boxes.length ? Math.max(...boxes.map((b) => b.b)) + 80 : c.y - h / 2)
+    const created = createZones(
+      names.map((name, i) => ({
+        x: x0 + i * (w + gap),
+        y: y0,
+        w,
+        h,
+        name,
+        color: /^#[0-9a-f]{6}$/i.test(colorRulesRef.current[`status|${rawOf(name)}`]?.color ?? '') ? colorRulesRef.current[`status|${rawOf(name)}`].color : ZONE_COLORS[i % ZONE_COLORS.length],
+      })),
+    )
+    // Move the notes into their zones, as if their position had never been set.
+    const moved: string[] = []
+    const next = tasksRef.current.map((t) => {
+      if (!isNew(t)) return t
+      moved.push(t.id)
+      return { ...t, autoPlaced: true }
+    })
+    setTasks(applyZones(next, [...zonesRef.current, ...created]))
+    moved.forEach((id) => markDirty(id, 'board'))
+    setCamera(fitRect(x0, y0, x0 + total, y0 + h, window.innerWidth, window.innerHeight))
+    setTool('none')
+  }
+
   const deleteZone = (id: string | null = selectedZoneId) => {
     const zone = zones.find((z) => z.id === id)
     if (!zone) return
@@ -925,12 +997,30 @@ export function BoardView({ source }: { source: Source }) {
       return {
         chips: shownFields.flatMap((f) => chipFor(f, t.values?.[f.key]) ?? []),
         dim: filter ? rawOf(valueOf(t, filter.key)) !== filter.raw : false,
+        hidden: hidden.some((h) => rawOf(valueOf(t, h.key)) === h.raw),
         color,
         ink: inkFor(color), // a dark fill from the Sheet needs light text
       }
     },
-    [shownFields, filter, colorScheme],
+    [shownFields, filter, colorScheme, hidden],
   )
+
+  const saveHidden = (next: HideRule[]) => {
+    setHidden(next)
+    try {
+      if (sheetId) localStorage.setItem(`nassana.hidden.${sheetId}`, JSON.stringify(next))
+    } catch {
+      /* storage unavailable: the choice just won't be remembered */
+    }
+  }
+
+  /** Hide / show every note that has this value in this column. Several values can be hidden at once. */
+  const toggleHidden = (rule: HideRule) =>
+    saveHidden(
+      hidden.some((h) => h.key === rule.key && h.raw === rule.raw)
+        ? hidden.filter((h) => !(h.key === rule.key && h.raw === rule.raw))
+        : [...hidden, rule],
+    )
 
   const onChip = (chip: Chip) =>
     setFilter((f) => (f && f.key === chip.key && f.raw === chip.raw ? null : { key: chip.key, raw: chip.raw, text: chip.value, label: chip.label }))
@@ -1261,7 +1351,12 @@ export function BoardView({ source }: { source: Source }) {
       {editable && tool === 'zone' && (
         <div className="selection-bar zone-bar">
           <span>Drag on the board to draw a zone</span>
-          {zones.length === 0 && <button onClick={addScrumZones}>Add Backlog / In progress / Done</button>}
+          {missingStatuses.length > 0 && (
+            <button onClick={createStatusZones}>
+              One zone per status ({missingStatuses.length})
+            </button>
+          )}
+          {zones.length === 0 && missingStatuses.length === 0 && <button onClick={addScrumZones}>Add Backlog / In progress / Done</button>}
           <button onClick={() => setTool('none')}>Cancel</button>
         </div>
       )}
@@ -1285,14 +1380,15 @@ export function BoardView({ source }: { source: Source }) {
         </div>
       )}
 
-      {(colorScheme || filter) && (
+      {(colorScheme || filter || hidden.length > 0) && (
         <div className="viewbar">
           {colorScheme &&
             [...colorScheme.byRaw.values()].map((v) => (
               <span className="legend-item" key={v.raw}>
                 <button
-                  className={filter?.key === colorScheme.field.key && filter.raw === v.raw ? 'on' : ''}
-                  onClick={() => setFilter((f) => (f && f.raw === v.raw && f.key === colorScheme.field.key ? null : { key: colorScheme.field.key, raw: v.raw, text: v.text, label: colorScheme.field.label }))}
+                  className={hidden.some((h) => h.key === colorScheme.field.key && h.raw === v.raw) ? 'off' : ''}
+                  aria-pressed={!hidden.some((h) => h.key === colorScheme.field.key && h.raw === v.raw)}
+                  onClick={() => toggleHidden({ key: colorScheme.field.key, raw: v.raw, text: v.text, label: colorScheme.field.label })}
                 >
                   {editable ? null : <span className="dot" style={{ background: v.color }} />}
                   {editable && <span className="dot-slot" />}
@@ -1311,7 +1407,20 @@ export function BoardView({ source }: { source: Source }) {
             ))}
           {filter && (
             <button className="filter" onClick={() => setFilter(null)}>
-              {filter.label}: {filter.text} ✕
+              Only {filter.label}: {filter.text} ✕
+            </button>
+          )}
+          {/* Hidden values of other columns are not in the legend: list them so they can be shown again. */}
+          {hidden
+            .filter((h) => h.key !== colorScheme?.field.key)
+            .map((h) => (
+              <button className="filter" key={`${h.key}|${h.raw}`} onClick={() => toggleHidden(h)}>
+                Hide {h.label}: {h.text} ✕
+              </button>
+            ))}
+          {hidden.length > 1 && (
+            <button className="filter" onClick={() => saveHidden([])}>
+              Show all
             </button>
           )}
         </div>
