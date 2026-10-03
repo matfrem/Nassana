@@ -7,6 +7,8 @@ import { applyZones, centerOf, encodeZone, notesInZone, zoneAt, zoneLabel } from
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE_HEADER } from './constants'
 import { demoTasks } from './data'
+import { ColorPicker } from './ColorPicker'
+import { byFrequency } from './colorUtil'
 import { DetailPanel, type LinkRow } from './DetailPanel'
 import { ColumnsPage } from './ColumnsPage'
 import { ZonePanel } from './ZonePanel'
@@ -164,6 +166,8 @@ export function BoardView({ source }: { source: Source }) {
   /** The stroke picked with the move tool. */
   const [selectedStroke, setSelectedStroke] = useState<StrokeRef | null>(null)
   const [tool, setTool] = useState<Tool>('none')
+  /** The color picker sheet, when open: it edits whatever `onChange` closes over. */
+  const [picker, setPicker] = useState<{ title: string; value: string; onChange: (c: string) => void } | null>(null)
   const [penColor, setPenColor] = useState(INK_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS.thin)
   const strokesRef = useRef(strokes)
@@ -1410,6 +1414,13 @@ export function BoardView({ source }: { source: Source }) {
               onClick={() => onColor(c)}
             />
           ))}
+          <button
+            className="more-colors"
+            aria-label="More colors"
+            onClick={() => setPicker({ title: 'Note color', value: tasks.find((t) => t.id === selectedId)?.board.color ?? NOTE_COLORS[0], onChange: onColor })}
+          >
+            🎨
+          </button>
           <span className="sep" />
           <button onClick={() => setDetailId(selectedId)}>☰ Details</button>
           <button onClick={() => addNote(selectedId)} aria-label="Add sub-task">
@@ -1528,6 +1539,16 @@ export function BoardView({ source }: { source: Source }) {
               onClick={() => onZoneColor(c)}
             />
           ))}
+          <button
+            className="more-colors"
+            aria-label="More colors"
+            onClick={() => {
+              const id = selectedZoneId
+              setPicker({ title: 'Zone color', value: zones.find((z) => z.id === id)?.color ?? ZONE_COLORS[0], onChange: (c) => onZoneColor(c, id) })
+            }}
+          >
+            🎨
+          </button>
           <span className="sep" />
           <button onClick={() => setZoneDetailId(selectedZoneId)}>☰ Details</button>
           <button className="danger" onClick={() => deleteZone()}>
@@ -1551,12 +1572,13 @@ export function BoardView({ source }: { source: Source }) {
                   {v.text}
                 </button>
                 {editable && (
-                  <input
-                    type="color"
+                  <button
                     className="dot-input"
                     aria-label={`Color of ${v.text}`}
-                    value={/^#[0-9a-f]{6}$/i.test(v.color) ? v.color : '#cccccc'}
-                    onChange={(e) => setValueColor(colorScheme.field.key, v.raw, e.target.value)}
+                    style={{ background: v.color }}
+                    onClick={() =>
+                      setPicker({ title: `Color of ${v.text}`, value: v.color, onChange: (c) => setValueColor(colorScheme.field.key, v.raw, c) })
+                    }
                   />
                 )}
               </span>
@@ -1606,6 +1628,10 @@ export function BoardView({ source }: { source: Source }) {
           onColor={(id, c) => onZoneColor(c, id)}
           onLimit={onZoneLimit}
           onDelete={deleteZone}
+          onMoreColors={() => {
+            const id = zoneDetailId
+            setPicker({ title: 'Zone color', value: zones.find((z) => z.id === id)?.color ?? ZONE_COLORS[0], onChange: (c) => onZoneColor(c, id) })
+          }}
         />
       )}
 
@@ -1626,6 +1652,16 @@ export function BoardView({ source }: { source: Source }) {
           subtasks={(stackKids.get(detailId) ?? []).length}
           links={linksOf(detailId)}
           onRemoveLink={(id) => removeLinks([id])}
+        />
+      )}
+
+      {picker && (
+        <ColorPicker
+          title={picker.title}
+          value={picker.value}
+          boardColors={byFrequency([...tasks.map((t) => t.board.color), ...zones.map((z) => z.color), ...Object.values(colorRules).map((r) => r.color)])}
+          onChange={picker.onChange}
+          onClose={() => setPicker(null)}
         />
       )}
 

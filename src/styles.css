@@ -670,11 +670,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   transform: translateY(-50%);
   border: 1px solid rgba(0, 0, 0, 0.35);
   border-radius: 50%;
-  background: none;
   cursor: pointer;
 }
-.legend-item .dot-input::-webkit-color-swatch-wrapper { padding: 0; }
-.legend-item .dot-input::-webkit-color-swatch { border: 0; border-radius: 50%; }
 .warnings button { margin-left: 8px; font: inherit; font-size: 13px; padding: 1px 8px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 
 /* ---- legend items toggle the visibility of a value ---- */
@@ -748,3 +745,28 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 /* hidden by the legend: a grey ghost keeps the spot taken */
 .note.ghost { background: #9ca3af !important; opacity: 0.22; box-shadow: none; pointer-events: none; }
 .note.ghost > * { visibility: hidden; }
+
+/* ---- color picker ---- */
+.cp-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; }
+.cp {
+  width: min(460px, 100vw); max-height: 88vh; overflow: auto; box-sizing: border-box;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--ui-bg); color: var(--ui-fg); border: 1px solid var(--ui-border);
+  border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.3);
+}
+@media (min-width: 640px) { .cp-backdrop { align-items: center; } .cp { border-radius: 16px; } }
+.cp header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.cp header strong { flex: 1; }
+.cp-current { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(128, 128, 128, 0.5); }
+.cp h3 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.65; }
+.cp-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.cp-swatch { width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 2px solid rgba(128, 128, 128, 0.45); cursor: pointer; }
+.cp-swatch.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.cp-slider { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin-bottom: 8px; }
+.cp-slider input { width: 100%; height: 22px; border-radius: 11px; appearance: none; -webkit-appearance: none; }
+.cp-slider input::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 3px solid #1f2328; }
+.cp-slider input::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid #1f2328; }
+.cp-hex { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.cp-hex input { flex: 1; font-family: monospace; }
+
+.more-colors { font-size: 16px; }
+.cfg-opt .swatch-btn { width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 2px solid rgba(128, 128, 128, 0.5); cursor: pointer; }

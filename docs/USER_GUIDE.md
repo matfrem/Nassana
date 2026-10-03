@@ -94,6 +94,10 @@ Links are not drawn between overlapping notes, and a link to a hidden note is hi
 - While you drag a note it lifts: shadow and a slight tilt.
 - Dragged notes snap onto the dots of the background (40 units apart).
 
+## Color picker
+
+The 🎨 button (next to the quick swatches of a note, a zone or the pen), the legend dots and the dropdown colors in the Columns page open one picker: **On this board** (colors already used, most used first), **Recent** (your last picks, kept in this browser), a **Palette**, and **Custom** (hue / saturation / lightness sliders and a hex field). The color applies live; **Done** (or a tap outside) closes it.
+
 ## Colors, filters and hiding
 
 The **◐** button:

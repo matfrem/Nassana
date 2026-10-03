@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { FakeSheet } from './fakeSheet'
-import { board, drag, note, openBoard, startEditing, zoneRow } from './helpers'
+import { board, drag, note, noteCenter, openBoard, startEditing, zoneRow } from './helpers'
 
 const viewMenu = (page: Page) => page.getByRole('button', { name: 'View options' }).click()
 const menuItem = (page: Page, name: string | RegExp) => page.locator('.menu button', { hasText: name })
@@ -75,7 +75,9 @@ test('colors by status with the zone colors; in Edit mode the legend dots pick c
   expect(await bg(page, 'Two')).toBe('rgb(192, 132, 252)') // the zone's purple
 
   await startEditing(page)
-  await page.getByLabel('Color of Backlog').fill('#ff8800')
+  await page.getByLabel('Color of Backlog').click()
+  await page.getByLabel('Hex color').fill('#ff8800')
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
   await expect.poll(() => sheet.board('color').map((d) => JSON.parse(d))).toEqual([{ key: 'status', value: 'backlog', color: '#ff8800' }])
   expect(await bg(page, 'Three')).toBe('rgb(255, 136, 0)')
 })
@@ -176,4 +178,29 @@ test.describe('on a phone', () => {
     await viewMenu(page)
     await expect(menuItem(page, /^pole/)).toHaveText('pole (2/10)')
   })
+})
+
+test('the color picker offers the board colors, remembers recent picks and applies live', async ({ page }) => {
+  const sheet = new FakeSheet({
+    Tasks: [
+      ['id', 'title', 'board'],
+      ['a', 'Alpha', board(0, 0, '#FFADAD')],
+      ['b', 'Beta', board(300, 0, '#FFADAD')],
+      ['c', 'Gamma', board(600, 0, '#9BF6FF')],
+    ],
+  })
+  await openBoard(page, sheet)
+  await startEditing(page)
+  const c = await noteCenter(page, 'Alpha')
+  await page.mouse.click(c.x - 40, c.y - 40)
+  await page.getByRole('button', { name: 'More colors' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Note color' })
+  await expect(dialog.locator('section', { hasText: 'On this board' }).locator('.cp-swatch')).toHaveCount(2)
+  await expect(dialog.locator('section', { hasText: 'On this board' }).locator('.cp-swatch').first()).toHaveAttribute('aria-label', 'Color #ffadad') // most used first
+  await dialog.getByLabel('Hex color').fill('#123456')
+  await expect.poll(() => JSON.parse(String(sheet.cell('Tasks', 'C2'))).color).toBe('#123456') // live, no need to confirm
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(dialog).toHaveCount(0)
+  await page.getByRole('button', { name: 'More colors' }).click()
+  await expect(page.getByRole('dialog').locator('section', { hasText: 'Recent' }).locator('.cp-swatch').first()).toHaveAttribute('aria-label', 'Color #123456')
 })

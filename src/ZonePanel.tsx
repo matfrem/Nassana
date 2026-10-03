@@ -13,10 +13,11 @@ interface Props {
   onColor: (id: string, color: string) => void
   onLimit: (id: string, limit: number | undefined) => void
   onDelete: (id: string) => void
+  onMoreColors: () => void
 }
 
 /** Details of a zone: title and its size, the status it auto-assigns, color and work-in-progress limit. */
-export function ZonePanel({ zone, count, onClose, onTitle, onStatus, onTitleSize, onColor, onLimit, onDelete }: Props) {
+export function ZonePanel({ zone, count, onClose, onTitle, onStatus, onTitleSize, onColor, onLimit, onDelete, onMoreColors }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -95,6 +96,9 @@ export function ZonePanel({ zone, count, onClose, onTitle, onStatus, onTitleSize
                 onClick={() => onColor(zone.id, c)}
               />
             ))}
+            <button className="swatch more-colors" aria-label="More colors" onClick={onMoreColors}>
+              🎨
+            </button>
           </div>
         </div>
 

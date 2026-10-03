@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ColorPicker } from './ColorPicker'
 import { NOTE_COLORS } from './constants'
 import { chipFor, RESERVED, type Field } from './fields'
 import {
@@ -295,6 +296,7 @@ function Row({
     )
   }
 
+  const [picking, setPicking] = useState<{ i: number; value: string } | null>(null)
   const setOpt = (i: number, p: Partial<Opt>) => onChange({ opts: d.opts.map((o, k) => (k === i ? { ...o, ...p } : o)) })
   const moveOpt = (i: number, dir: -1 | 1) => {
     const j = i + dir
@@ -347,7 +349,12 @@ function Row({
         <div className="cfg-opts">
           {d.opts.map((o, i) => (
             <div className="cfg-opt" key={i}>
-              <input type="color" aria-label="Color" value={/^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#cccccc'} onChange={(e) => setOpt(i, { color: e.target.value })} />
+              <button
+                className="swatch-btn"
+                aria-label="Color"
+                style={{ background: /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#cccccc' }}
+                onClick={() => setPicking({ i, value: o.color })}
+              />
               <input aria-label="Value" value={o.value} placeholder="Value" onChange={(e) => setOpt(i, { value: e.target.value })} />
               <button aria-label="Move value up" disabled={i === 0} onClick={() => moveOpt(i, -1)}>
                 ↑
@@ -364,6 +371,15 @@ function Row({
             ＋ Add a value
           </button>
         </div>
+      )}
+      {picking && (
+        <ColorPicker
+          title="Dropdown value color"
+          value={picking.value}
+          boardColors={[]}
+          onChange={(c) => setOpt(picking.i, { color: c })}
+          onClose={() => setPicking(null)}
+        />
       )}
       {error && <p className="error">{error}</p>}
     </div>
