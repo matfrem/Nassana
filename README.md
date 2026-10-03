@@ -23,6 +23,7 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Saving positions (debounced, by row id)
 - [x] Add note, color, rename, delete (Edit mode: tap a note to select it)
 - [x] Drawing on the board (pen, eraser, undo; strokes stored one per row in the `_board` tab)
+- [x] Drawing on notes (a stroke started on a note belongs to it; stored in the `drawing` column)
 - [x] Two-finger pan + zoom on touch screens
 
 ## Sheet format
@@ -54,3 +55,6 @@ Strokes live in a tab named `_board` (created on the first stroke), one row per 
 
 `p` is the simplified polyline in board coordinates (first point absolute, then deltas).
 A Sheets cell holds 50 000 characters at most, so strokes are simplified until they fit.
+
+Strokes drawn **on a note** are stored in the note's own `drawing` column (created on first use):
+a JSON array of `{"c","w","p"}` in note coordinates, so they follow the note and are clipped to it.

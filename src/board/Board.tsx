@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { NOTE_SIZE } from '../constants'
 import type { Camera, Stroke, Task } from '../types'
 import { clampZoom, screenToWorld, zoomAt } from './camera'
 import { hitsStroke } from './ink'
-import { Ink } from './Ink'
+import { Ink, type Clip } from './Ink'
 import { StickyNote } from './StickyNote'
 
 export type Tool = 'none' | 'pen' | 'eraser'
@@ -22,10 +23,13 @@ interface Props {
   penColor: string
   /** Pen width in screen pixels (converted to world units when the stroke starts). */
   penWidth: number
-  /** Called with the finished stroke's points (flat x,y list, world coordinates) and width. */
-  onStroke: (points: number[], width: number) => void
-  /** Called while erasing, with the ids of the strokes just touched. */
-  onErase: (ids: string[]) => void
+  /**
+   * Called with the finished stroke's points (flat x,y list, world coordinates) and width.
+   * `noteId` is the note the stroke started on (it then belongs to that note), or null.
+   */
+  onStroke: (points: number[], width: number, noteId: string | null) => void
+  /** Called while erasing, with the strokes just touched (`noteId` set for strokes drawn on a note). */
+  onErase: (hits: { id: string; noteId?: string }[]) => void
   onEraseEnd: () => void
   camera: Camera
   setCamera: React.Dispatch<React.SetStateAction<Camera>>
@@ -62,7 +66,8 @@ export function Board({
   const mode = useRef<Mode>('idle')
   const pinch = useRef({ dist: 1, cx: 0, cy: 0 })
   const tap = useRef({ x: 0, y: 0, moved: false })
-  const live = useRef<{ pts: number[]; width: number } | null>(null)
+  const live = useRef<{ pts: number[]; width: number; noteId: string | null } | null>(null)
+  const [liveClip, setLiveClip] = useState<Clip | null>(null)
   const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
   const [panning, setPanning] = useState(false)
 
@@ -71,6 +76,8 @@ export function Board({
   camRef.current = camera
   const strokesRef = useRef(strokes)
   strokesRef.current = strokes
+  const tasksRef = useRef(tasks)
+  tasksRef.current = tasks
 
   // Wheel: zoom centered on the cursor (non-passive listener so we can preventDefault).
   useEffect(() => {
@@ -99,13 +106,29 @@ export function Board({
   const showLive = () => {
     const l = live.current
     setLiveStroke(l ? { id: 'live', c: penColor, w: l.width, p: l.pts } : null)
+    const note = l?.noteId ? tasksRef.current.find((t) => t.id === l.noteId) : null
+    setLiveClip(note ? { x: note.board.x, y: note.board.y, size: NOTE_SIZE } : null)
   }
+
+  /** The topmost note under a world point, if any. */
+  const noteAt = (x: number, y: number) =>
+    [...tasksRef.current]
+      .reverse()
+      .find((t) => x >= t.board.x && x <= t.board.x + NOTE_SIZE && y >= t.board.y && y <= t.board.y + NOTE_SIZE)
 
   const erase = (e: { clientX: number; clientY: number }) => {
     const w = world(e)
     const r = ERASER_RADIUS / camRef.current.zoom
-    const hit = strokesRef.current.filter((s) => hitsStroke(s, w.x, w.y, r)).map((s) => s.id)
-    if (hit.length) onErase(hit)
+    const hits: { id: string; noteId?: string }[] = strokesRef.current
+      .filter((s) => hitsStroke(s, w.x, w.y, r))
+      .map((s) => ({ id: s.id }))
+    for (const t of tasksRef.current) {
+      const lx = w.x - t.board.x
+      const ly = w.y - t.board.y
+      if (!t.drawing?.length || lx < -r || ly < -r || lx > NOTE_SIZE + r || ly > NOTE_SIZE + r) continue
+      for (const s of t.drawing) if (hitsStroke(s, lx, ly, r)) hits.push({ id: s.id, noteId: t.id })
+    }
+    if (hits.length) onErase(hits)
   }
 
   const cancelGesture = () => {
@@ -134,7 +157,11 @@ export function Board({
     if (e.button !== 0) mode.current = 'pan'
     else if (tool === 'pen') {
       const w = world(e)
-      live.current = { pts: [w.x, w.y], width: Math.max(0.5, penWidth / camRef.current.zoom) }
+      live.current = {
+        pts: [w.x, w.y],
+        width: Math.max(0.5, penWidth / camRef.current.zoom),
+        noteId: noteAt(w.x, w.y)?.id ?? null, // starting on a note means drawing on that note
+      }
       mode.current = 'draw'
       showLive()
     } else if (tool === 'eraser') {
@@ -189,7 +216,7 @@ export function Board({
     const finished = e.type === 'pointerup'
 
     if (mode.current === 'draw' && live.current && finished) {
-      onStroke(live.current.pts, live.current.width)
+      onStroke(live.current.pts, live.current.width, live.current.noteId)
     } else if (mode.current === 'erase') {
       onEraseEnd()
     } else if (mode.current === 'pan' && finished && !tap.current.moved) {
@@ -237,7 +264,7 @@ export function Board({
             onRenameDone={onRenameDone}
           />
         ))}
-        <Ink strokes={strokes} live={liveStroke} />
+        <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} />
       </div>
     </div>
   )

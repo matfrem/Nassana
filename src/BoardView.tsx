@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Board, type Tool } from './board/Board'
-import { simplify } from './board/ink'
+import { encodeNoteDrawing, simplify } from './board/ink'
 import { fitCamera, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS } from './constants'
 import { demoTasks } from './data'
@@ -72,7 +72,7 @@ export function BoardView({ source }: { source: Source }) {
   const strokesRef = useRef(strokes)
   strokesRef.current = strokes
   /** Strokes drawn in this session, newest last, for undo. */
-  const undoStack = useRef<string[]>([])
+  const undoStack = useRef<{ id: string; noteId?: string }[]>([])
   /** Strokes erased during the current eraser gesture, deleted from the Sheet when it ends. */
   const erased = useRef(new Set<string>())
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -86,7 +86,7 @@ export function BoardView({ source }: { source: Source }) {
   const tasksRef = useRef(tasks)
   tasksRef.current = tasks
   /** Which cells of which tasks still have to be written to the Sheet. */
-  const dirty = useRef(new Map<string, { title?: boolean; board?: boolean }>())
+  const dirty = useRef(new Map<string, { title?: boolean; board?: boolean; drawing?: boolean }>())
   const timer = useRef<ReturnType<typeof setTimeout>>()
   const saving = useRef<Promise<void>>(Promise.resolve())
 
@@ -201,6 +201,7 @@ export function BoardView({ source }: { source: Source }) {
           id: t.id,
           title: d?.title ? t.title : undefined,
           board: d?.board || t.autoPlaced ? t.board : undefined,
+          drawing: d?.drawing ? (t.drawing ?? []) : undefined,
         })
       }
       dirty.current.clear()
@@ -219,7 +220,7 @@ export function BoardView({ source }: { source: Source }) {
   }, [sheetId, enqueue])
 
   const markDirty = useCallback(
-    (id: string, field: 'title' | 'board') => {
+    (id: string, field: 'title' | 'board' | 'drawing') => {
       if (!sheetId) return
       dirty.current.set(id, { ...dirty.current.get(id), [field]: true })
       clearTimeout(timer.current)
@@ -292,13 +293,32 @@ export function BoardView({ source }: { source: Source }) {
     })
   }
 
-  const onStroke = (points: number[], width: number) => {
+  const onStroke = (points: number[], width: number, noteId: string | null) => {
     // Simplify at about one screen pixel: the drawing stays smooth and fits in a Sheet cell.
     const eps = 1 / camera.zoom
-    const p = simplify(points, eps).map((v) => Math.round(v * 10) / 10)
-    const stroke: Stroke = { id: crypto.randomUUID().slice(0, 8), c: penColor, w: Math.round(width * 10) / 10, p }
+    const round1 = (v: number) => Math.round(v * 10) / 10
+    const base = { id: crypto.randomUUID().slice(0, 8), c: penColor, w: round1(width) }
+
+    const note = noteId ? tasksRef.current.find((t) => t.id === noteId) : undefined
+    if (note) {
+      // A stroke started on a note belongs to it: store it in note coordinates, so it follows the note.
+      const local = points.map((v, i) => v - (i % 2 === 0 ? note.board.x : note.board.y))
+      const stroke: Stroke = { ...base, p: simplify(local, eps).map(round1) }
+      const next = [...(note.drawing ?? []), stroke]
+      try {
+        encodeNoteDrawing(next, 0.5) // does it fit in the note's cell?
+      } catch (e) {
+        return fail(e)
+      }
+      setTasks((ts) => ts.map((t) => (t.id === note.id ? { ...t, drawing: next } : t)))
+      undoStack.current.push({ id: stroke.id, noteId: note.id })
+      markDirty(note.id, 'drawing')
+      return
+    }
+
+    const stroke: Stroke = { ...base, p: simplify(points, eps).map(round1) }
     setStrokes((ss) => [...ss, stroke])
-    undoStack.current.push(stroke.id)
+    undoStack.current.push({ id: stroke.id })
     if (!sheetId) return
     setSave({ kind: 'saving' })
     void enqueue(async () => {
@@ -315,7 +335,14 @@ export function BoardView({ source }: { source: Source }) {
   const removeStrokes = (ids: string[]) => {
     const gone = new Set(ids)
     setStrokes((ss) => ss.filter((s) => !gone.has(s.id)))
-    undoStack.current = undoStack.current.filter((id) => !gone.has(id))
+    undoStack.current = undoStack.current.filter((u) => !gone.has(u.id))
+  }
+
+  const removeNoteStrokes = (noteId: string, ids: string[]) => {
+    const gone = new Set(ids)
+    setTasks((ts) => ts.map((t) => (t.id === noteId ? { ...t, drawing: (t.drawing ?? []).filter((s) => !gone.has(s.id)) } : t)))
+    undoStack.current = undoStack.current.filter((u) => !gone.has(u.id))
+    markDirty(noteId, 'drawing')
   }
 
   const deleteStrokeRows = (ids: string[]) => {
@@ -332,9 +359,13 @@ export function BoardView({ source }: { source: Source }) {
     })
   }
 
-  const onErase = (ids: string[]) => {
-    ids.forEach((id) => erased.current.add(id))
-    removeStrokes(ids)
+  const onErase = (hits: { id: string; noteId?: string }[]) => {
+    const boardIds = hits.filter((h) => !h.noteId).map((h) => h.id)
+    boardIds.forEach((id) => erased.current.add(id))
+    if (boardIds.length) removeStrokes(boardIds)
+    const byNote = new Map<string, string[]>()
+    for (const h of hits) if (h.noteId) byNote.set(h.noteId, [...(byNote.get(h.noteId) ?? []), h.id])
+    byNote.forEach((ids, noteId) => removeNoteStrokes(noteId, ids))
   }
 
   const onEraseEnd = () => {
@@ -344,10 +375,11 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const undoStroke = () => {
-    const id = undoStack.current[undoStack.current.length - 1]
-    if (!id) return
-    removeStrokes([id])
-    deleteStrokeRows([id])
+    const last = undoStack.current[undoStack.current.length - 1]
+    if (!last) return
+    if (last.noteId) return removeNoteStrokes(last.noteId, [last.id])
+    removeStrokes([last.id])
+    deleteStrokeRows([last.id])
   }
 
   const toggleEdit = async () => {

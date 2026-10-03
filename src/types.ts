@@ -11,6 +11,8 @@ export interface Task {
   board: BoardInfo
   /** True when the Sheet had no position for this task and we picked one. */
   autoPlaced?: boolean
+  /** Strokes drawn on the note, in note coordinates (0..NOTE_SIZE). */
+  drawing?: Stroke[]
 }
 
 export interface Camera {

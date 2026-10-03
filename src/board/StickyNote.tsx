@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { NOTE_SIZE } from '../constants'
 import type { Task } from '../types'
+import { pathFor } from './ink'
 
 const TAP_SLOP = 4 // px of movement below which a press counts as a tap, not a drag
 
@@ -106,6 +107,13 @@ export function StickyNote({
         />
       ) : (
         task.title
+      )}
+      {task.drawing && task.drawing.length > 0 && (
+        <svg className="note-ink" width={NOTE_SIZE} height={NOTE_SIZE}>
+          {task.drawing.map((s) => (
+            <path key={s.id} d={pathFor(s.p)} stroke={s.c} strokeWidth={s.w} />
+          ))}
+        </svg>
       )}
     </div>
   )

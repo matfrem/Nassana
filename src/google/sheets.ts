@@ -1,6 +1,6 @@
 import { NOTE_COLORS, NOTE_SIZE, NOTE_STEP } from '../constants'
 import { DRAWING_TAB, REQUIRED_COLUMNS, TASKS_TAB } from '../config'
-import { decodeStroke, encodeStroke } from '../board/ink'
+import { decodeNoteDrawing, decodeStroke, encodeNoteDrawing, encodeStroke } from '../board/ink'
 import type { BoardInfo, Stroke, Task } from '../types'
 import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
@@ -126,7 +126,7 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
       columns: HEADER.filter((c) => col(c) < 0),
     })
   }
-  const [iId, iTitle, iBoard] = [col('id'), col('title'), col('board')]
+  const [iId, iTitle, iBoard, iDrawing] = [col('id'), col('title'), col('board'), col('drawing')]
 
   const warnings: string[] = []
   const seen = new Set<string>()
@@ -147,6 +147,7 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
       title,
       board: { x: b.x ?? NaN, y: b.y ?? NaN, color: b.color ?? NOTE_COLORS[n % NOTE_COLORS.length] },
       autoPlaced: b.x === undefined,
+      drawing: iDrawing >= 0 ? decodeNoteDrawing(id, row[iDrawing]) : [],
     })
   })
 
@@ -231,6 +232,9 @@ async function readTable(sheetId: string): Promise<Table> {
   return { rows, header, iId, iTitle }
 }
 
+/** Base simplification (board units) when writing a note's drawing; more is applied if it does not fit. */
+const DRAWING_EPS = 0.5
+
 const boardJson = (b: BoardInfo) =>
   JSON.stringify({ x: Math.round(b.x), y: Math.round(b.y), color: b.color })
 
@@ -247,6 +251,7 @@ export interface TaskPatch {
   id: string
   title?: string
   board?: BoardInfo
+  drawing?: Stroke[]
 }
 
 /**
@@ -260,10 +265,18 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
   const rowOf = rowsById(t)
   const data: { range: string; values: string[][] }[] = []
 
-  let iBoard = t.header.indexOf('board')
-  if (iBoard < 0 && patches.some((p) => p.board)) {
-    iBoard = t.header.length
-    data.push({ range: `${TASKS_TAB}!${columnLetter(iBoard)}1`, values: [['board']] })
+  // Columns we may have to add to the header: `board` and `drawing` (appended after the last one).
+  let width = t.header.length
+  const added = new Map<string, number>()
+  const column = (name: string): number => {
+    const i = t.header.indexOf(name)
+    if (i >= 0) return i
+    if (!added.has(name)) {
+      added.set(name, width)
+      data.push({ range: `${TASKS_TAB}!${columnLetter(width)}1`, values: [[name]] })
+      width++
+    }
+    return added.get(name)!
   }
   for (const p of patches) {
     const row = rowOf.get(p.id)
@@ -271,7 +284,13 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
     if (p.title !== undefined) {
       data.push({ range: `${TASKS_TAB}!${columnLetter(t.iTitle)}${row}`, values: [[p.title]] })
     }
-    if (p.board) data.push({ range: `${TASKS_TAB}!${columnLetter(iBoard)}${row}`, values: [[boardJson(p.board)]] })
+    if (p.board) data.push({ range: `${TASKS_TAB}!${columnLetter(column('board'))}${row}`, values: [[boardJson(p.board)]] })
+    if (p.drawing) {
+      data.push({
+        range: `${TASKS_TAB}!${columnLetter(column('drawing'))}${row}`,
+        values: [[encodeNoteDrawing(p.drawing, DRAWING_EPS)]],
+      })
+    }
   }
   if (data.length === 0) return
 

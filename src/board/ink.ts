@@ -67,48 +67,76 @@ export function hitsStroke(s: Stroke, x: number, y: number, radius: number): boo
 /** A Google Sheets cell holds at most 50 000 characters. */
 const MAX_CELL = 45_000
 
-/**
- * Compact text form: {"c":"#fff","w":3,"p":[x0,y0,dx,dy,...]} (deltas after the first point).
- * If it would not fit in a cell, the stroke is simplified harder until it does.
- */
-export function encodeStroke(s: Stroke, eps: number): string {
-  let p = simplify(s.p, eps)
-  for (let tries = 0; tries < 12; tries++) {
-    const out: number[] = []
-    let px = 0
-    let py = 0
-    for (let i = 0; i < p.length; i += 2) {
-      const x = round1(p[i])
-      const y = round1(p[i + 1])
-      out.push(round1(i === 0 ? x : x - px), round1(i === 0 ? y : y - py))
-      px = x
-      py = y
-    }
-    const json = JSON.stringify({ c: s.c, w: round1(s.w), p: out })
-    if (json.length <= MAX_CELL) return json
-    p = simplify(p, eps * 2 ** (tries + 1))
+/** {"c":"#fff","w":3,"p":[x0,y0,dx,dy,...]}: deltas after the first point, one decimal. */
+function packStroke(s: Stroke, eps: number): string {
+  const p = simplify(s.p, eps)
+  const out: number[] = []
+  let px = 0
+  let py = 0
+  for (let i = 0; i < p.length; i += 2) {
+    const x = round1(p[i])
+    const y = round1(p[i + 1])
+    out.push(round1(i === 0 ? x : x - px), round1(i === 0 ? y : y - py))
+    px = x
+    py = y
   }
-  throw new Error('This stroke is too long to store. Try drawing it in pieces.')
+  return JSON.stringify({ c: s.c, w: round1(s.w), p: out })
 }
 
+/**
+ * Encodes strokes into one cell value (`list` = a JSON array, otherwise a single object).
+ * If it would not fit, the strokes are simplified harder until it does.
+ */
+function fit(strokes: Stroke[], eps: number, list: boolean, tooBig: string): string {
+  for (let tries = 0; tries < 10; tries++) {
+    const e = eps * 2 ** tries
+    const parts = strokes.map((s) => packStroke(s, e))
+    const text = list ? `[${parts.join(',')}]` : parts[0]
+    if (text.length <= MAX_CELL) return text
+  }
+  throw new Error(tooBig)
+}
+
+export const encodeStroke = (s: Stroke, eps: number) =>
+  fit([s], eps, false, 'This stroke is too long to store. Try drawing it in pieces.')
+
+/** All the strokes drawn on one note: the `drawing` cell of its row. */
+export const encodeNoteDrawing = (strokes: Stroke[], eps: number) =>
+  strokes.length === 0 ? '' : fit(strokes, eps, true, "This note's drawing is full. Erase something first.")
+
 const HEX = /^#[0-9a-f]{3,8}$/i
+
+function strokeFromObject(id: string, o: { c?: unknown; w?: unknown; p?: unknown } | null): Stroke | null {
+  if (!o || typeof o.c !== 'string' || !HEX.test(o.c) || !Number.isFinite(o.w) || !Array.isArray(o.p)) return null
+  if (o.p.length < 2 || o.p.length % 2 || !o.p.every(Number.isFinite)) return null
+  const p: number[] = []
+  let x = 0
+  let y = 0
+  for (let i = 0; i < o.p.length; i += 2) {
+    x = round1(x + (o.p[i] as number))
+    y = round1(y + (o.p[i + 1] as number))
+    p.push(x, y)
+  }
+  return { id, c: o.c, w: o.w as number, p }
+}
 
 export function decodeStroke(id: string, raw: unknown): Stroke | null {
   if (typeof raw !== 'string') return null
   try {
-    const o = JSON.parse(raw) as { c?: unknown; w?: unknown; p?: unknown }
-    if (typeof o.c !== 'string' || !HEX.test(o.c) || !Number.isFinite(o.w) || !Array.isArray(o.p)) return null
-    if (o.p.length < 2 || o.p.length % 2 || !o.p.every(Number.isFinite)) return null
-    const p: number[] = []
-    let x = 0
-    let y = 0
-    for (let i = 0; i < o.p.length; i += 2) {
-      x = round1(x + (o.p[i] as number))
-      y = round1(y + (o.p[i + 1] as number))
-      p.push(x, y)
-    }
-    return { id, c: o.c, w: o.w as number, p }
+    return strokeFromObject(id, JSON.parse(raw))
   } catch {
     return null
+  }
+}
+
+/** Strokes of a note. Ids only exist at runtime (to erase and undo), so they are made up here. */
+export function decodeNoteDrawing(taskId: string, raw: unknown): Stroke[] {
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const list = JSON.parse(raw)
+    if (!Array.isArray(list)) return []
+    return list.flatMap((o, i) => strokeFromObject(`${taskId}-${i}`, o) ?? [])
+  } catch {
+    return []
   }
 }
