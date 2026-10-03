@@ -12,6 +12,8 @@ interface Props {
   editing: boolean
   /** A note is being dragged over this zone. */
   highlight: boolean
+  /** Number of notes inside. */
+  count: number
   onSelect: (id: string) => void
   onDragStart: (id: string) => void
   onDrag: (id: string, x: number, y: number) => void
@@ -31,6 +33,7 @@ export function ZoneView({
   selected,
   editing,
   highlight,
+  count,
   onSelect,
   onDragStart,
   onDrag,
@@ -141,7 +144,12 @@ export function ZoneView({
             }}
           />
         ) : (
-          zone.name || 'Untitled zone'
+          <>
+            {zone.name || 'Untitled zone'}
+            <span className={`zone-count${zone.limit && count > zone.limit ? ' over' : ''}`}>
+              {zone.limit ? `${count}/${zone.limit}` : count}
+            </span>
+          </>
         )}
       </div>
       {editable && selected && (

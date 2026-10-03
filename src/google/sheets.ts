@@ -2,6 +2,7 @@ import { NOTE_COLORS, NOTE_SIZE, NOTE_STEP } from '../constants'
 import { DRAWING_TAB, REQUIRED_COLUMNS, TASKS_TAB } from '../config'
 import { decodeNoteDrawing, decodeStroke, encodeNoteDrawing, encodeStroke } from '../board/ink'
 import { decodeZone } from '../board/zones'
+import { columnsOf, type Cell, type Column, type FieldMeta } from '../fields'
 import type { BoardInfo, Stroke, Task, Zone } from '../types'
 import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
@@ -29,6 +30,8 @@ const HEADER = ['id', 'title', 'board']
 export interface SheetData {
   title: string
   tasks: Task[]
+  /** Custom columns (everything besides id, title, description, board, drawing, status). */
+  columns: Column[]
   /** Non-fatal problems (e.g. rows skipped), shown to the user. */
   warnings: string[]
 }
@@ -93,8 +96,8 @@ export async function fetchSheet(sheetId: string): Promise<SheetData> {
     api(`${API}/${id}/values/${encodeURIComponent(TASKS_TAB)}?valueRenderOption=UNFORMATTED_VALUE`),
   ])) as [{ properties?: { title?: string } }, { values?: unknown[][] }]
 
-  const { tasks, warnings } = parseTasks(values.values ?? [])
-  return { title: meta.properties?.title ?? 'Untitled sheet', tasks, warnings }
+  const { tasks, warnings, columns } = parseTasks(values.values ?? [])
+  return { title: meta.properties?.title ?? 'Untitled sheet', tasks, columns, warnings }
 }
 
 const HEX = /^#[0-9a-f]{3,8}$/i
@@ -115,7 +118,7 @@ function parseBoard(raw: unknown): Partial<BoardInfo> {
   }
 }
 
-export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string[] } {
+export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string[]; columns: Column[] } {
   if (rows.length === 0) throw new SheetError(`The "${TASKS_TAB}" tab is empty. It needs a header row.`, { kind: 'empty' })
 
   const header = rows[0].map((h) => String(h ?? '').trim().toLowerCase())
@@ -127,7 +130,8 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
       columns: HEADER.filter((c) => col(c) < 0),
     })
   }
-  const [iId, iTitle, iBoard, iDrawing, iStatus] = [col('id'), col('title'), col('board'), col('drawing'), col('status')]
+  const [iId, iTitle, iBoard, iDrawing, iStatus, iDesc] = [col('id'), col('title'), col('board'), col('drawing'), col('status'), col('description')]
+  const columns = columnsOf(rows[0])
 
   const warnings: string[] = []
   const seen = new Set<string>()
@@ -150,13 +154,17 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
       autoPlaced: b.x === undefined,
       drawing: iDrawing >= 0 ? decodeNoteDrawing(id, row[iDrawing]) : [],
       status: iStatus >= 0 ? String(row[iStatus] ?? '').trim() || undefined : undefined,
+      description: iDesc >= 0 ? String(row[iDesc] ?? '') || undefined : undefined,
+      values: Object.fromEntries(
+        columns.flatMap((c) => (row[c.index] === undefined || row[c.index] === '' ? [] : [[c.key, row[c.index] as Cell]])),
+      ),
     })
   })
 
   if (skippedNoId) warnings.push(`${skippedNoId} row(s) skipped: empty id.`)
   if (skippedDup) warnings.push(`${skippedDup} row(s) skipped: duplicate id.`)
   autoPlace(tasks)
-  return { tasks, warnings }
+  return { tasks, warnings, columns }
 }
 
 /** Puts tasks without a saved position on a grid, below the notes that already have one. */
@@ -256,6 +264,9 @@ export interface TaskPatch {
   drawing?: Stroke[]
   /** An empty string clears the status. */
   status?: string
+  description?: string
+  /** Custom columns to write, by column key (the column must already exist in the header). */
+  values?: Record<string, Cell>
 }
 
 /**
@@ -267,7 +278,7 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
   if (patches.length === 0) return
   const t = await readTable(sheetId)
   const rowOf = rowsById(t)
-  const data: { range: string; values: string[][] }[] = []
+  const data: { range: string; values: Cell[][] }[] = []
 
   // Columns we may have to add to the header: `board` and `drawing` (appended after the last one).
   let width = t.header.length
@@ -291,6 +302,13 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
     if (p.board) data.push({ range: `${TASKS_TAB}!${columnLetter(column('board'))}${row}`, values: [[boardJson(p.board)]] })
     if (p.status !== undefined) {
       data.push({ range: `${TASKS_TAB}!${columnLetter(column('status'))}${row}`, values: [[p.status]] })
+    }
+    if (p.description !== undefined) {
+      data.push({ range: `${TASKS_TAB}!${columnLetter(column('description'))}${row}`, values: [[p.description]] })
+    }
+    for (const [key, v] of Object.entries(p.values ?? {})) {
+      const i = t.header.indexOf(key)
+      if (i >= 0) data.push({ range: `${TASKS_TAB}!${columnLetter(i)}${row}`, values: [[v]] })
     }
     if (p.drawing) {
       data.push({
@@ -473,4 +491,67 @@ export async function deleteBoardRows(sheetId: string, ids: string[]): Promise<v
     .sort((a, b) => b - a)
     .map((i) => ({ deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: i, endIndex: i + 1 } } }))
   await api(`${API}/${id}:batchUpdate`, { method: 'POST', body: { requests } })
+}
+
+// ---------------------------------------------------------------------------------
+// What the Sheet knows about its columns: dropdown lists, checkboxes, date formats
+// ---------------------------------------------------------------------------------
+
+interface GridCell {
+  dataValidation?: { condition?: { type?: string; values?: { userEnteredValue?: string }[] } }
+  userEnteredFormat?: { numberFormat?: { type?: string } }
+}
+
+/** `='Lists'!A1:A9` or `=A1:A9` (this tab) -> a range usable in the values API. */
+function rangeOfFormula(formula: string): string | null {
+  const m = formula.trim().match(/^=\s*(?:'([^']+)'|([^'!]+))?!?(.+)$/)
+  if (!m) return null
+  const hasTab = formula.includes('!')
+  const tab = m[1] ?? (hasTab ? m[2] : TASKS_TAB)
+  const cells = hasTab ? m[3] : (m[2] ?? '') + m[3]
+  return `'${tab}'!${cells}`
+}
+
+/**
+ * Reads data validation (dropdown lists, checkboxes) and number formats (dates) from the first
+ * rows of each column. Best effort: any failure just means fields are typed from their values.
+ */
+export async function fetchFieldMeta(sheetId: string, columns: Column[], rowCount: number): Promise<Record<string, FieldMeta>> {
+  if (columns.length === 0 || rowCount === 0) return {}
+  try {
+    const id = encodeURIComponent(sheetId)
+    const last = columnLetter(Math.max(...columns.map((c) => c.index)))
+    const range = encodeURIComponent(`${TASKS_TAB}!A2:${last}${Math.min(rowCount + 1, 101)}`)
+    const res = (await api(
+      `${API}/${id}?ranges=${range}&includeGridData=true&fields=sheets.data.rowData.values(dataValidation,userEnteredFormat.numberFormat.type)`,
+    )) as { sheets?: { data?: { rowData?: { values?: GridCell[] }[] }[] }[] }
+    const rows = res.sheets?.[0]?.data?.[0]?.rowData ?? []
+
+    const meta: Record<string, FieldMeta> = {}
+    for (const c of columns) {
+      const m: FieldMeta = {}
+      for (const row of rows) {
+        const cell = row.values?.[c.index]
+        const rule = cell?.dataValidation?.condition
+        const fmt = cell?.userEnteredFormat?.numberFormat?.type
+        if (fmt === 'DATE' || fmt === 'DATE_TIME') m.dateFormat = true
+        if (!rule?.type) continue
+        const vals = (rule.values ?? []).map((v) => v.userEnteredValue ?? '')
+        if (rule.type === 'ONE_OF_LIST') m.options ??= vals.filter(Boolean)
+        else if (rule.type === 'ONE_OF_RANGE') {
+          const ref = vals[0] ? rangeOfFormula(vals[0]) : null
+          if (ref && !m.options) {
+            const list = (await api(`${API}/${id}/values/${encodeURIComponent(ref)}`).catch(() => null)) as { values?: unknown[][] } | null
+            m.options = (list?.values ?? []).flat().map((v) => String(v)).filter(Boolean)
+          }
+        } else if (rule.type === 'BOOLEAN') m.checkbox = true
+        else if (rule.type.startsWith('DATE_')) m.dateValidation = true
+      }
+      if (m.options || m.checkbox || m.dateFormat || m.dateValidation) meta[c.key] = m
+    }
+    return meta
+  } catch (e) {
+    if (e instanceof AuthRequiredError) throw e
+    return {}
+  }
 }

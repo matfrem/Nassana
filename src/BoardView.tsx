@@ -1,10 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Board, type Tool } from './board/Board'
 import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
 import { demoTasks } from './data'
+import { DetailPanel } from './DetailPanel'
+import {
+  buildFields,
+  chipFor,
+  rawOf,
+  toCell,
+  TONE_COLORS,
+  type Cell,
+  type Chip,
+  type Column,
+  type Field,
+  type FieldMeta,
+} from './fields'
 import { AuthRequiredError, signIn } from './google/auth'
 import { pickSheet } from './google/picker'
 import {
@@ -15,6 +28,7 @@ import {
   deleteBoardRows,
   deleteTask,
   fetchBoardData,
+  fetchFieldMeta,
   fetchSheet,
   saveTasks,
   SheetError,
@@ -68,6 +82,19 @@ export function BoardView({ source }: { source: Source }) {
   const [status, setStatus] = useState<Status>({ kind: isDemo ? 'ready' : 'loading' })
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
   const [editable, setEditable] = useState(false)
+  const [columns, setColumns] = useState<Column[]>([])
+  const [meta, setMeta] = useState<Record<string, FieldMeta>>({})
+  const [detailId, setDetailId] = useState<string | null>(null)
+  /** Quick filter: only notes with this value in this column stay bright. */
+  const [filter, setFilter] = useState<{ key: string; raw: string; text: string; label: string } | null>(null)
+  const [colorBy, setColorByState] = useState<string>(() => {
+    try {
+      return (sheetId && localStorage.getItem(`nassana.colorBy.${sheetId}`)) || ''
+    } catch {
+      return ''
+    }
+  })
+  const [viewMenu, setViewMenu] = useState(false)
   const [zones, setZones] = useState<Zone[]>([])
   const zonesRef = useRef(zones)
   zonesRef.current = zones
@@ -107,7 +134,9 @@ export function BoardView({ source }: { source: Source }) {
   const tasksRef = useRef(tasks)
   tasksRef.current = tasks
   /** Which cells of which tasks still have to be written to the Sheet. */
-  const dirty = useRef(new Map<string, { title?: boolean; board?: boolean; drawing?: boolean; status?: boolean }>())
+  const dirty = useRef(
+    new Map<string, { title?: boolean; board?: boolean; drawing?: boolean; status?: boolean; description?: boolean; cols?: Set<string> }>(),
+  )
   const timer = useRef<ReturnType<typeof setTimeout>>()
   const saving = useRef<Promise<void>>(Promise.resolve())
 
@@ -123,6 +152,7 @@ export function BoardView({ source }: { source: Source }) {
         // The Sheet is the source of truth for statuses: put notes in the zone their status names.
         const tasks = applyZones(data.tasks, board ? board.zones : zonesRef.current)
         setTasks(tasks)
+        setColumns(data.columns)
         setTitle(data.title)
         if (board) {
           setStrokes(board.strokes)
@@ -132,6 +162,8 @@ export function BoardView({ source }: { source: Source }) {
         setUpdatedAt(new Date())
         setStatus({ kind: 'ready' })
         rememberSheet({ id: sheetId, title: data.title })
+        // Dropdown lists and date formats: read once per (re)load, never on the background poll.
+        if (!background) void fetchFieldMeta(sheetId, data.columns, data.tasks.length).then(setMeta)
         if (!fitted.current) {
           fitted.current = true
           setCamera(fitCamera(tasks.map((t) => t.board), NOTE_SIZE, window.innerWidth, window.innerHeight))
@@ -228,6 +260,8 @@ export function BoardView({ source }: { source: Source }) {
           board: d?.board || t.autoPlaced ? t.board : undefined,
           drawing: d?.drawing ? (t.drawing ?? []) : undefined,
           status: d?.status ? (t.status ?? '') : undefined,
+          description: d?.description ? (t.description ?? '') : undefined,
+          values: d?.cols ? Object.fromEntries([...d.cols].map((k) => [k, t.values?.[k] ?? ''])) : undefined,
         })
       }
       dirty.current.clear()
@@ -247,7 +281,10 @@ export function BoardView({ source }: { source: Source }) {
         setTasks((ts) => ts.map((t) => (saved.has(t.id) ? { ...t, autoPlaced: false } : t)))
         setSave({ kind: 'saved' })
       } catch (e) {
-        for (const [id, d] of pending) dirty.current.set(id, { ...dirty.current.get(id), ...d }) // retry later
+        for (const [id, d] of pending) {
+          const now = dirty.current.get(id)
+          dirty.current.set(id, { ...now, ...d, cols: new Set([...(now?.cols ?? []), ...(d.cols ?? [])]) }) // retry later
+        }
         zoneIds.forEach((id) => dirtyZones.current.add(id))
         strokeIds.forEach((id) => dirtyStrokes.current.add(id))
         fail(e)
@@ -256,9 +293,21 @@ export function BoardView({ source }: { source: Source }) {
   }, [sheetId, enqueue])
 
   const markDirty = useCallback(
-    (id: string, field: 'title' | 'board' | 'drawing' | 'status') => {
+    (id: string, field: 'title' | 'board' | 'drawing' | 'status' | 'description') => {
       if (!sheetId) return
       dirty.current.set(id, { ...dirty.current.get(id), [field]: true })
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
+    },
+    [sheetId, flush],
+  )
+
+  /** A custom column of a task changed. */
+  const markCol = useCallback(
+    (id: string, key: string) => {
+      if (!sheetId) return
+      const now = dirty.current.get(id)
+      dirty.current.set(id, { ...now, cols: new Set([...(now?.cols ?? []), key]) })
       clearTimeout(timer.current)
       timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
     },
@@ -629,6 +678,88 @@ export function BoardView({ source }: { source: Source }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // ---- properties: fields, pills, filter, color-by ----
+  const fields = useMemo(() => buildFields(columns, tasks, meta), [columns, tasks, meta])
+  const shownFields = useMemo(() => fields.filter((f) => f.shown), [fields])
+
+  const setColorBy = (key: string) => {
+    setColorByState(key)
+    setViewMenu(false)
+    try {
+      if (sheetId) localStorage.setItem(`nassana.colorBy.${sheetId}`, key)
+    } catch {
+      /* storage unavailable: the choice just won't be remembered */
+    }
+  }
+
+  /** Color for each distinct value of the "color by" field (tones for priorities, a palette otherwise). */
+  const colorScheme = useMemo(() => {
+    const f = fields.find((x) => x.key === colorBy)
+    if (!f) return null
+    const seen = new Map<string, { raw: string; text: string; color: string }>()
+    const distinct = [...new Set(tasks.map((t) => rawOf(t.values?.[f.key])).filter(Boolean))].sort()
+    for (const t of tasks) {
+      const raw = rawOf(t.values?.[f.key])
+      if (!raw || seen.has(raw)) continue
+      const chip = chipFor(f, t.values?.[f.key])
+      const tone = chip?.tone
+      seen.set(raw, {
+        raw,
+        text: chip?.text ?? raw,
+        color: tone ? TONE_COLORS[tone] : NOTE_COLORS[distinct.indexOf(raw) % NOTE_COLORS.length],
+      })
+    }
+    return { field: f, byRaw: seen }
+  }, [fields, colorBy, tasks])
+
+  const noteView = useCallback(
+    (t: Task) => ({
+      chips: shownFields.flatMap((f) => chipFor(f, t.values?.[f.key]) ?? []),
+      dim: filter ? rawOf(t.values?.[filter.key]) !== filter.raw : false,
+      color: colorScheme ? (colorScheme.byRaw.get(rawOf(t.values?.[colorScheme.field.key]))?.color ?? '#E5E7EB') : t.board.color,
+    }),
+    [shownFields, filter, colorScheme],
+  )
+
+  const onChip = (chip: Chip) =>
+    setFilter((f) => (f && f.key === chip.key && f.raw === chip.raw ? null : { key: chip.key, raw: chip.raw, text: chip.text, label: chip.label }))
+
+  const onDescription = (id: string, text: string) => {
+    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, description: text || undefined } : t)))
+    markDirty(id, 'description')
+  }
+
+  const onValue = (id: string, field: Field, input: string | boolean) => {
+    const cell: Cell = toCell(field, input)
+    setTasks((ts) =>
+      ts.map((t) => {
+        if (t.id !== id) return t
+        const values = { ...t.values }
+        if (cell === '') delete values[field.key]
+        else values[field.key] = cell
+        return { ...t, values }
+      }),
+    )
+    markCol(id, field.key)
+  }
+
+  /** Changing the status in the panel moves the note into the zone of that name, like a drop would. */
+  const onStatus = (id: string, status: string) => {
+    const next = tasksRef.current.map((t) => (t.id === id ? { ...t, status: status || undefined, autoPlaced: true } : t))
+    setTasks(applyZones(next, zonesRef.current))
+    markDirty(id, 'status')
+  }
+
+  const setZoneLimit = () => {
+    const z = zones.find((zz) => zz.id === selectedZoneId)
+    if (!z) return
+    const answer = window.prompt(`Work-in-progress limit for "${z.name}" (empty = no limit)`, z.limit ? String(z.limit) : '')
+    if (answer === null) return
+    const n = Number.parseInt(answer, 10)
+    patchZone(z.id, { limit: Number.isInteger(n) && n > 0 ? n : undefined })
+    markZoneDirty(z.id)
+  }
+
   const zoomTo = (f: number | 'reset') =>
     setCamera((c) =>
       zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, f === 'reset' ? 1 : c.zoom * f),
@@ -646,7 +777,11 @@ export function BoardView({ source }: { source: Source }) {
         onSelect={(id) => {
           setSelectedId(id)
           setSelectedZoneId(null)
+          if (!id) setDetailId(null)
         }}
+        noteView={noteView}
+        onChip={onChip}
+        onNoteOpen={setDetailId}
         onRename={onRename}
         onRenameDone={() => setEditingId(null)}
         zones={zones}
@@ -727,6 +862,26 @@ export function BoardView({ source }: { source: Source }) {
             ▭<span className="label"> Zone</span>
           </button>
         )}
+        {fields.length > 0 && (
+          <span className="menu-anchor">
+            <button aria-label="View options" className={colorBy ? 'primary' : ''} onClick={() => setViewMenu((v) => !v)}>
+              ◐
+            </button>
+            {viewMenu && (
+              <div className="menu">
+                <strong>Color notes by</strong>
+                <button className={!colorBy ? 'on' : ''} onClick={() => setColorBy('')}>
+                  Manual color
+                </button>
+                {fields.map((f) => (
+                  <button key={f.key} className={colorBy === f.key ? 'on' : ''} onClick={() => setColorBy(f.key)}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </span>
+        )}
         {sheetId && (
           <button
             aria-label="Refresh"
@@ -742,7 +897,7 @@ export function BoardView({ source }: { source: Source }) {
         <button onClick={() => zoomTo(1.25)} aria-label="Zoom in">+</button>
       </div>
 
-      {editable && tool === 'none' && selectedId && !editingId && (
+      {editable && tool === 'none' && selectedId && !editingId && !detailId && (
         <div className="selection-bar">
           {NOTE_COLORS.map((c) => (
             <button
@@ -755,6 +910,7 @@ export function BoardView({ source }: { source: Source }) {
           ))}
           <span className="sep" />
           <button onClick={() => setEditingId(selectedId)}>✎ Rename</button>
+          <button onClick={() => setDetailId(selectedId)}>☰ Details</button>
           <button className="danger" onClick={deleteSelected}>
             🗑 Delete
           </button>
@@ -831,10 +987,46 @@ export function BoardView({ source }: { source: Source }) {
           ))}
           <span className="sep" />
           <button onClick={() => setEditingZoneId(selectedZoneId)}>✎ Rename</button>
+          <button onClick={setZoneLimit}>⏱ Limit</button>
           <button className="danger" onClick={deleteSelectedZone}>
             🗑 Delete
           </button>
         </div>
+      )}
+
+      {(colorScheme || filter) && (
+        <div className="viewbar">
+          {colorScheme &&
+            [...colorScheme.byRaw.values()].map((v) => (
+              <button
+                key={v.raw}
+                className={filter?.key === colorScheme.field.key && filter.raw === v.raw ? 'on' : ''}
+                onClick={() => setFilter((f) => (f && f.raw === v.raw && f.key === colorScheme.field.key ? null : { key: colorScheme.field.key, raw: v.raw, text: v.text, label: colorScheme.field.label }))}
+              >
+                <span className="dot" style={{ background: v.color }} />
+                {v.text}
+              </button>
+            ))}
+          {filter && (
+            <button className="filter" onClick={() => setFilter(null)}>
+              {filter.label}: {filter.text} ✕
+            </button>
+          )}
+        </div>
+      )}
+
+      {detailId && tasks.find((t) => t.id === detailId) && (
+        <DetailPanel
+          task={tasks.find((t) => t.id === detailId)!}
+          fields={fields}
+          zoneNames={zones.map((z) => z.name).filter(Boolean)}
+          editable={editable}
+          onClose={() => setDetailId(null)}
+          onTitle={onRename}
+          onDescription={onDescription}
+          onStatus={onStatus}
+          onValue={onValue}
+        />
       )}
 
       <div className={`badge${save.kind === 'error' ? ' badge-error' : ''}`}>

@@ -75,7 +75,7 @@ export function applyZones(tasks: Task[], zones: Zone[]): Task[] {
 const HEX6 = /^#[0-9a-f]{6}$/i
 
 export const encodeZone = (z: Zone) =>
-  JSON.stringify({ x: round(z.x), y: round(z.y), w: round(z.w), h: round(z.h), name: z.name, color: z.color })
+  JSON.stringify({ x: round(z.x), y: round(z.y), w: round(z.w), h: round(z.h), name: z.name, color: z.color, limit: z.limit })
 
 export function decodeZone(id: string, raw: unknown): Zone | null {
   if (typeof raw !== 'string') return null
@@ -90,6 +90,7 @@ export function decodeZone(id: string, raw: unknown): Zone | null {
       h: o.h as number,
       name: typeof o.name === 'string' ? o.name : '',
       color: typeof o.color === 'string' && HEX6.test(o.color) ? o.color : '#94A3B8',
+      limit: Number.isInteger(o.limit) && (o.limit as number) > 0 ? (o.limit as number) : undefined,
     }
   } catch {
     return null

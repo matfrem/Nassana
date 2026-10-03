@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NOTE_SIZE } from '../constants'
+import type { Chip } from '../fields'
 import type { Camera, Stroke, Task, Zone } from '../types'
 import { clampZoom, screenToWorld, zoomAt } from './camera'
 import { hitsStroke } from './ink'
 import { Ink, type Clip } from './Ink'
 import { StickyNote } from './StickyNote'
+import { zoneOfNote } from './zones'
 import { ZoneView } from './ZoneView'
 
 export type Tool = 'none' | 'pen' | 'eraser' | 'zone'
@@ -19,6 +21,11 @@ interface Props {
   onSelect: (id: string | null) => void
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
+  /** How a note looks: its pills, whether it is filtered out, and its color. */
+  noteView: (t: Task) => { chips: Chip[]; dim: boolean; color: string }
+  onChip: (chip: Chip) => void
+  /** A tap on a note while not editing (opens its details). */
+  onNoteOpen: (id: string) => void
   zones: Zone[]
   selectedZoneId: string | null
   editingZoneId: string | null
@@ -67,6 +74,9 @@ export function Board({
   onSelect,
   onRename,
   onRenameDone,
+  noteView,
+  onChip,
+  onNoteOpen,
   zones,
   selectedZoneId,
   editingZoneId,
@@ -94,7 +104,7 @@ export function Board({
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const mode = useRef<Mode>('idle')
   const pinch = useRef({ dist: 1, cx: 0, cy: 0 })
-  const tap = useRef({ x: 0, y: 0, moved: false })
+  const tap = useRef({ x: 0, y: 0, moved: false, noteId: null as string | null })
   const live = useRef<{ pts: number[]; width: number; noteId: string | null } | null>(null)
   const [liveClip, setLiveClip] = useState<Clip | null>(null)
   const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
@@ -185,7 +195,12 @@ export function Board({
       return
     }
 
-    tap.current = { x: e.clientX, y: e.clientY, moved: false }
+    tap.current = {
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+      noteId: (e.target as Element).closest?.('[data-note-id]')?.getAttribute('data-note-id') ?? null,
+    }
     // Mouse: middle/right button always pans, so you can move around while a tool is active.
     if (e.button !== 0) mode.current = 'pan'
     else if (tool === 'pen') {
@@ -266,7 +281,9 @@ export function Board({
       zoneStart.current = null
       setLiveZone(null)
     } else if (mode.current === 'pan' && finished && !tap.current.moved) {
-      onSelect(null) // a press on the empty background deselects the current note
+      // A tap on a note opens its details; a tap on the empty background deselects.
+      if (tap.current.noteId) onNoteOpen(tap.current.noteId)
+      else onSelect(null)
     }
     live.current = null
     showLive()
@@ -275,6 +292,15 @@ export function Board({
   }
 
   const gridSize = GRID * camera.zoom
+  const level = camera.zoom < 0.45 ? 0 : camera.zoom < 0.8 ? 1 : 2
+  const counts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of tasks) {
+      const z = zoneOfNote(zones, t)
+      if (z) m.set(z.id, (m.get(z.id) ?? 0) + 1)
+    }
+    return m
+  }, [tasks, zones])
 
   return (
     <div
@@ -304,6 +330,7 @@ export function Board({
             selected={z.id === selectedZoneId}
             editing={z.id === editingZoneId}
             highlight={z.id === highlightZoneId}
+            count={counts.get(z.id) ?? 0}
             onSelect={onZoneSelect}
             onDragStart={onZoneDragStart}
             onDrag={onZoneDrag}
@@ -320,9 +347,17 @@ export function Board({
             style={{ transform: `translate(${liveZone.x}px, ${liveZone.y}px)`, width: liveZone.w, height: liveZone.h }}
           />
         )}
-        {tasks.map((t) => (
+        {tasks.map((t) => {
+          const v = noteView(t)
+          return (
           <StickyNote
             key={t.id}
+            chips={v.chips}
+            dim={v.dim}
+            color={v.color}
+            level={level}
+            tooling={tool !== 'none'}
+            onChip={onChip}
             task={t}
             zoom={camera.zoom}
             editable={editable && tool === 'none'}
@@ -334,7 +369,8 @@ export function Board({
             onRename={onRename}
             onRenameDone={onRenameDone}
           />
-        ))}
+          )
+        })}
         <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} />
       </div>
     </div>

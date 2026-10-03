@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { NOTE_SIZE } from '../constants'
+import type { Chip } from '../fields'
 import type { Task } from '../types'
 import { pathFor } from './ink'
 
@@ -17,6 +18,17 @@ interface Props {
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
+  /** Pills built from the `#` columns. */
+  chips: Chip[]
+  /** Filtered out: shown faded. */
+  dim: boolean
+  /** Background color to show (the manual color, or one derived from a property). */
+  color: string
+  /** 0: title only (zoomed out), 1: + pills, 2: + description. */
+  level: 0 | 1 | 2
+  /** A drawing tool is active: pills must not catch presses meant for drawing. */
+  tooling: boolean
+  onChip: (chip: Chip) => void
 }
 
 export function StickyNote({
@@ -30,6 +42,12 @@ export function StickyNote({
   onSelect,
   onRename,
   onRenameDone,
+  chips,
+  dim,
+  color,
+  level,
+  tooling,
+  onChip,
 }: Props) {
   const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -76,12 +94,13 @@ export function StickyNote({
 
   return (
     <div
-      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}`}
+      data-note-id={task.id}
+      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}${dim ? ' dim' : ''}`}
       style={{
         transform: `translate(${task.board.x}px, ${task.board.y}px)`,
         width: NOTE_SIZE,
         height: NOTE_SIZE,
-        background: task.board.color,
+        background: color,
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -106,7 +125,25 @@ export function StickyNote({
           }}
         />
       ) : (
-        task.title
+        <div className="note-title">{task.title}</div>
+      )}
+      {level >= 2 && task.description && !editing && <div className="note-desc">{task.description}</div>}
+      {level >= 1 && chips.length > 0 && !editing && (
+        <div className="note-chips">
+          {chips.map((c) => (
+            <button
+              key={c.key}
+              className={`chip${c.tone ? ` tone-${c.tone}` : ''}`}
+              title={c.label}
+              style={tooling ? { pointerEvents: 'none' } : undefined}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onChip(c)}
+            >
+              {c.icon && <span aria-hidden>{c.icon}</span>}
+              {c.text}
+            </button>
+          ))}
+        </div>
       )}
       {task.drawing && task.drawing.length > 0 && (
         <svg className="note-ink" width={NOTE_SIZE} height={NOTE_SIZE}>

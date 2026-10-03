@@ -25,6 +25,7 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Drawing on the board (pen, eraser, undo; strokes stored one per row in the `_board` tab)
 - [x] Drawing on notes (a stroke started on a note belongs to it; stored in the `drawing` column)
 - [x] Zones = scrum board: a note dropped in a zone takes the zone's name as its `status`
+- [x] Custom properties: `xxx#` columns become pills on notes; details panel; quick filter; color-by; zone counters + WIP limit
 - [x] Two-finger pan + zoom on touch screens
 
 ## Sheet format
@@ -69,3 +70,14 @@ A zone is a rectangle with a name; its name is the status. Zones are rows of typ
 - The Sheet is the source of truth: on load, a note with no saved position goes into the zone named like its status,
   and a note sitting in a zone whose status names a *different* zone moves there. Notes outside every zone stay put.
 - Moving a zone carries the notes inside it, and the board strokes drawn entirely inside it. Renaming or resizing a zone gives its name as status to the notes inside.
+
+## Properties
+
+- `title` and `description` are fixed columns. Any column whose header ends with `#` (e.g. `dueDate#`, `prio#`) is shown
+  as a pill on the note. Other custom columns only appear in the details panel. Columns are matched by name.
+- Types come from the Sheet itself when it says something (dropdown validation, checkbox, date format) and otherwise
+  from the values: dates (overdue = red, due within 2 days = orange), numbers, checkboxes, links, priorities
+  (`high`/`medium`/`low`, `P1`...). Dropdown lists, including lists read from another range, become `<select>`s in the panel.
+- Tap a note to open its panel (editable in Edit mode). Tap a pill to filter on that value. The `◐` button colors notes
+  by a property (kept per device). Zones show how many notes they hold; the `⏱ Limit` button sets a WIP limit.
+- Zoomed out, notes show only their title; pills appear at about 45% zoom and the description at about 80%.

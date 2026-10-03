@@ -1,3 +1,5 @@
+import type { Cell } from './fields'
+
 /** Content of the `board` column of the Sheet (JSON). */
 export interface BoardInfo {
   x: number
@@ -15,6 +17,9 @@ export interface Task {
   drawing?: Stroke[]
   /** Free text; equals the name of the zone the note sits in, if any. */
   status?: string
+  description?: string
+  /** Custom columns (anything besides id, title, description, board, drawing, status), by column key. */
+  values?: Record<string, Cell>
 }
 
 export interface Camera {
@@ -45,4 +50,6 @@ export interface Zone {
   /** Doubles as the status value. */
   name: string
   color: string
+  /** Work-in-progress limit: the counter turns red above it. */
+  limit?: number
 }
