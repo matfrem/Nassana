@@ -680,3 +680,15 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 /* ---- legend items toggle the visibility of a value ---- */
 .viewbar .legend-item button.off { text-decoration: line-through; opacity: 0.55; }
 .viewbar .legend-item button.off .dot { opacity: 0.4; }
+
+/* Fixed bars are centered with auto margins, not `left: 50%`: with `left: 50%` a shrink-to-fit box only gets
+   half the screen to lay itself out in, so legends and bars wrapped far too early. */
+.selection-bar, .viewbar, .warnings {
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  transform: none;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+}
+.zone-bar { width: min(380px, calc(100vw - 16px)); }

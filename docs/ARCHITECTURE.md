@@ -99,10 +99,13 @@ columns already occupy → append new columns → write headers → validation/f
 
 ## Testing
 
-There is **no automated test suite in the repository yet**. During development the behaviour was checked with throw-away Playwright scripts
-(the Google APIs replaced by an in-memory fake Sheet through request interception; touch gestures through real `Input.dispatchTouchEvent`), screenshots at
-phone size, and an esbuild-bundled simulator for the columns `batchUpdate` math. Turning those into a committed `tests/` folder (Playwright + a fake Sheet)
-is the obvious next step.
+- **Unit** (Vitest, `src/**/*.test.ts`): `npm test`. Pure logic: ink encoding, zones, links, fields, Sheets helpers, columns requests, view state.
+- **End-to-end** (Playwright Test, `tests/e2e`): `npm run test:e2e`. The Google APIs are replaced by an in-memory `FakeSheet` through request
+  interception; touch gestures use real `Input.dispatchTouchEvent`. If the browser isn't installed: `npx playwright install chromium`, or set
+  `CHROMIUM_PATH` to an existing Chromium binary.
+- `npm run test:all` runs both. CI: `.github/workflows/test.yml`.
+
+Per-browser view state (color-by, hidden values, filter, camera) lives in `localStorage` under `nassana.view.<sheetId>` (`src/viewState.ts`).
 
 ## Known limits and ideas
 
@@ -110,4 +113,4 @@ is the obvious next step.
 - Changing a column's type doesn't convert existing values; hide/filter/color-by choices live on the device, not in the Sheet.
 - Undo covers strokes only; deleting a note/zone/column is final (use Sheets' version history).
 - Ideas: 🔒 on a note whose predecessor isn't in the last zone, auto-scroll the board under an open panel, list/table view, creating a Sheet from the app,
-  per-board settings stored in `_board`, a committed test suite.
+  per-board settings stored in `_board`.

@@ -51,6 +51,6 @@ workflow). Required once, in the repository: **Settings → Pages → Build and 
 
 ## What is not here yet
 
-- No automated test suite (see [Testing](docs/ARCHITECTURE.md#testing)).
+- Tests: `npm test` (unit) and `npm run test:e2e` (Playwright, fake Sheet) — see [Testing](docs/ARCHITECTURE.md#testing).
 - No real-time collaboration: changes of other people appear when the board refreshes (every 30 s in read-only mode, or on ↻).
 - Offline use, undo/redo for everything but strokes, converting a column's existing values when its type changes.

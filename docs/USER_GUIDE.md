@@ -84,13 +84,13 @@ Links are not drawn between overlapping notes, and a link to a hidden note is hi
 
 The **◐** button:
 
-- **Color notes by** a column or by **Status** (zone colors). A legend appears under the toolbar.
+- **View → Fit to content** recenters the board. **Color notes by** a column (menu entries show `label (visible/total)` when a filter is active) or by **Status** (zone colors). A legend appears under the toolbar.
 - Where the colors come from, in order: a color you picked in the legend (Edit mode: the dots are color pickers; shared, stored in the
   Sheet), the zone of that name (status), the Sheet's own cell fill or conditional format, a tone for priorities, then a palette.
   The Sheets API cannot read the colors of dropdown *chips*, which is why you pick them here. A fill shared by several values of a
   column (a row or banding color) is ignored.
 - **Tap a legend item to hide that value** (every note with it disappears, with its links); tap again to show it. Hidden values add up,
-  stay when you switch the "color by" column (those of other columns appear as `Hide Status: To Do ✕` pills, plus **Show all**) and are
+  stay when you switch the "color by" column (those of other columns are summed up in one pill per column, e.g. `Status: 2 hidden ✕`, plus **Show all**) and are
   remembered on this device.
 - **Tap a pill on a note** to show only that value (`Only Priority: A ✕` clears it).
 - **⚙ Edit columns…** (Edit mode) opens the columns page.
@@ -112,3 +112,5 @@ Edits the real columns of the `Tasks` tab, like you would in Sheets:
 - *N row(s) skipped: empty id*: those rows have a title but no id, so the board can't show them. **Give them an id** writes a fresh id
   in each. If some are section headings rather than tasks, don't, or delete them from the Sheet.
 - *N row(s) skipped: duplicate id*: ids must be unique; the first row wins.
+
+The view (color-by, hidden values, filter, camera) is remembered per browser and per Sheet.

@@ -44,6 +44,7 @@ import {
   updateBoardRows,
 } from './google/sheets'
 import { rememberSheet } from './recent'
+import { loadView, saveView, type HideRule, type OnlyRule } from './viewState'
 import type { Camera, ColorRule, Link, Stroke, Task, Zone } from './types'
 
 export type Source = { kind: 'demo' } | { kind: 'sheet'; id: string }
@@ -56,14 +57,6 @@ type Status =
 
 /** The task's value for a column; `status` is not a custom column but can be colored and filtered like one. */
 const valueOf = (t: Task, key: string) => (key === 'status' ? t.status : t.values?.[key])
-
-interface HideRule {
-  key: string
-  raw: string
-  /** For the pill: the value as written, and the column's label. */
-  text: string
-  label: string
-}
 
 const STATUS_FIELD: Field = { key: 'status', label: 'Status', index: -1, shown: false, type: 'text' }
 
@@ -106,24 +99,18 @@ export function BoardView({ source }: { source: Source }) {
   const [meta, setMeta] = useState<Record<string, FieldMeta>>({})
   const [detailId, setDetailId] = useState<string | null>(null)
   const [zoneDetailId, setZoneDetailId] = useState<string | null>(null)
+  /** This browser's view of this board (color-by, filters, camera), restored on reload. */
+  const [savedView] = useState(() => loadView(sheetId))
   /** Quick filter: only notes with this value in this column stay bright. */
-  const [filter, setFilter] = useState<{ key: string; raw: string; text: string; label: string } | null>(null)
-  const [colorBy, setColorByState] = useState<string>(() => {
-    try {
-      return (sheetId && localStorage.getItem(`nassana.colorBy.${sheetId}`)) || ''
-    } catch {
-      return ''
-    }
-  })
+  const [filter, setFilterState] = useState<OnlyRule | null>(savedView.only)
+  const setFilter = (next: OnlyRule | null | ((prev: OnlyRule | null) => OnlyRule | null)) => {
+    const value = typeof next === 'function' ? next(filter) : next
+    setFilterState(value)
+    saveView(sheetId, { only: value })
+  }
+  const [colorBy, setColorByState] = useState<string>(savedView.colorBy)
   /** Values hidden from the board, kept across changes of the "color by" column and across reloads. */
-  const [hidden, setHidden] = useState<HideRule[]>(() => {
-    try {
-      const v = JSON.parse((sheetId && localStorage.getItem(`nassana.hidden.${sheetId}`)) || '[]')
-      return Array.isArray(v) ? v.filter((h) => h && typeof h.key === 'string' && typeof h.raw === 'string') : []
-    } catch {
-      return []
-    }
-  })
+  const [hidden, setHidden] = useState<HideRule[]>(savedView.hidden)
   const [viewMenu, setViewMenu] = useState(false)
   const [showColumns, setShowColumns] = useState(false)
   const [zones, setZones] = useState<Zone[]>([])
@@ -172,10 +159,11 @@ export function BoardView({ source }: { source: Source }) {
   const erased = useRef(new Set<string>())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [camera, setCamera] = useState<Camera>(() =>
-    fitCamera(isDemo ? demoTasks().map((t) => t.board) : [], NOTE_SIZE, window.innerWidth, window.innerHeight),
+  const [camera, setCamera] = useState<Camera>(
+    () => savedView.camera ?? fitCamera(isDemo ? demoTasks().map((t) => t.board) : [], NOTE_SIZE, window.innerWidth, window.innerHeight),
   )
-  const fitted = useRef(isDemo)
+  /** The camera is already where it should be (demo, or restored from the saved view): don't fit to the content on load. */
+  const fitted = useRef(isDemo || !!savedView.camera)
 
   const [save, setSave] = useState<SaveState>({ kind: 'idle' })
   const tasksRef = useRef(tasks)
@@ -186,6 +174,13 @@ export function BoardView({ source }: { source: Source }) {
   )
   const timer = useRef<ReturnType<typeof setTimeout>>()
   const saving = useRef<Promise<void>>(Promise.resolve())
+
+  // Remember where this browser was looking (not in the demo, and not before the first fit).
+  useEffect(() => {
+    if (isDemo || status.kind !== 'ready' || !fitted.current) return
+    const t = setTimeout(() => saveView(sheetId, { camera }), 400)
+    return () => clearTimeout(t)
+  }, [camera, status.kind, isDemo, sheetId])
 
   const load = useCallback(
     async (background: boolean) => {
@@ -931,6 +926,28 @@ export function BoardView({ source }: { source: Source }) {
 
   const hasStatus = tasks.some((t) => t.status) || zones.length > 0
 
+  /** Camera that shows every note and zone. */
+  const fitContent = () => {
+    setViewMenu(false)
+    const xs = [...tasks.flatMap((t) => [t.board.x, t.board.x + NOTE_SIZE]), ...zones.flatMap((z) => [z.x, z.x + z.w])]
+    const ys = [...tasks.flatMap((t) => [t.board.y, t.board.y + NOTE_SIZE]), ...zones.flatMap((z) => [z.y, z.y + z.h])]
+    if (xs.length) setCamera(fitRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), window.innerWidth, window.innerHeight))
+  }
+
+  /** `name (visible/total)` once some values of the column are hidden, so an active filter is visible in the menu. */
+  const withCounts = (key: string, label: string) => {
+    const values = new Set(tasks.map((t) => rawOf(valueOf(t, key))).filter(Boolean))
+    const hiddenHere = hidden.filter((h) => h.key === key && values.has(h.raw)).length
+    return hiddenHere > 0 ? `${label} (${values.size - hiddenHere}/${values.size})` : label
+  }
+
+  /** The hidden values, grouped by column: one pill per column instead of one per value. */
+  const hiddenGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; count: number }>()
+    for (const h of hidden) groups.set(h.key, { key: h.key, label: h.label, count: (groups.get(h.key)?.count ?? 0) + 1 })
+    return [...groups.values()]
+  }, [hidden])
+
   /** Rows with a title but no id are invisible to the board: write a fresh id in each (on request). */
   const giveIds = async () => {
     if (!sheetId) return
@@ -947,11 +964,7 @@ export function BoardView({ source }: { source: Source }) {
   const setColorBy = (key: string) => {
     setColorByState(key)
     setViewMenu(false)
-    try {
-      if (sheetId) localStorage.setItem(`nassana.colorBy.${sheetId}`, key)
-    } catch {
-      /* storage unavailable: the choice just won't be remembered */
-    }
+    saveView(sheetId, { colorBy: key })
   }
 
   /** Color for each distinct value of the "color by" field (tones for priorities, a palette otherwise). */
@@ -1007,11 +1020,7 @@ export function BoardView({ source }: { source: Source }) {
 
   const saveHidden = (next: HideRule[]) => {
     setHidden(next)
-    try {
-      if (sheetId) localStorage.setItem(`nassana.hidden.${sheetId}`, JSON.stringify(next))
-    } catch {
-      /* storage unavailable: the choice just won't be remembered */
-    }
+    saveView(sheetId, { hidden: next })
   }
 
   /** Hide / show every note that has this value in this column. Several values can be hidden at once. */
@@ -1194,13 +1203,15 @@ export function BoardView({ source }: { source: Source }) {
             ▭<span className="label"> Zone</span>
           </button>
         )}
-        {(fields.length > 0 || hasStatus || (editable && sheetId)) && (
+        {(fields.length > 0 || hasStatus || !!sheetId) && (
           <span className="menu-anchor">
             <button aria-label="View options" className={colorBy ? 'primary' : ''} onClick={() => setViewMenu((v) => !v)}>
               ◐
             </button>
             {viewMenu && (
               <div className="menu">
+                <strong>View</strong>
+                <button onClick={fitContent}>⤢ Fit to content</button>
                 {(fields.length > 0 || hasStatus) && (
                   <>
                     <strong>Color notes by</strong>
@@ -1209,12 +1220,12 @@ export function BoardView({ source }: { source: Source }) {
                     </button>
                     {hasStatus && (
                       <button className={colorBy === 'status' ? 'on' : ''} onClick={() => setColorBy('status')}>
-                        Status
+                        {withCounts('status', 'Status')}
                       </button>
                     )}
                     {fields.map((f) => (
                       <button key={f.key} className={colorBy === f.key ? 'on' : ''} onClick={() => setColorBy(f.key)}>
-                        {f.label}
+                        {withCounts(f.key, f.label)}
                       </button>
                     ))}
                   </>
@@ -1410,12 +1421,12 @@ export function BoardView({ source }: { source: Source }) {
               Only {filter.label}: {filter.text} ✕
             </button>
           )}
-          {/* Hidden values of other columns are not in the legend: list them so they can be shown again. */}
-          {hidden
-            .filter((h) => h.key !== colorScheme?.field.key)
-            .map((h) => (
-              <button className="filter" key={`${h.key}|${h.raw}`} onClick={() => toggleHidden(h)}>
-                Hide {h.label}: {h.text} ✕
+          {/* Hidden values of other columns are not in the legend: one pill per column keeps the bar short. */}
+          {hiddenGroups
+            .filter((g) => g.key !== colorScheme?.field.key)
+            .map((g) => (
+              <button className="filter" key={g.key} onClick={() => saveHidden(hidden.filter((h) => h.key !== g.key))}>
+                {g.label}: {g.count} hidden ✕
               </button>
             ))}
           {hidden.length > 1 && (

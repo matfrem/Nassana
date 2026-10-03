@@ -34,6 +34,7 @@ function exit(t: Task, tx: number, ty: number): { x: number; y: number } {
   const cy = t.board.y + NOTE_SIZE / 2
   const dx = tx - cx
   const dy = ty - cy
+  if (dx === 0 && dy === 0) return { x: cx, y: cy } // the target is the centre itself: no direction to leave by
   const len = Math.hypot(dx, dy) || 1
   const half = NOTE_SIZE / 2
   // Distance to the square's border along the direction (the square is axis-aligned).
