@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Board, type Tool } from './board/Board'
-import { encodeNoteDrawing, simplify } from './board/ink'
+import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
@@ -76,7 +76,14 @@ export function BoardView({ source }: { source: Source }) {
   /** Zones whose geometry/name/color still has to be written to the Sheet. */
   const dirtyZones = useRef(new Set<string>())
   /** While a zone is dragged: where it started and the notes it carries along. */
-  const zoneDrag = useRef<{ x: number; y: number; notes: { id: string; x: number; y: number }[] } | null>(null)
+  const zoneDrag = useRef<{
+    x: number
+    y: number
+    notes: { id: string; x: number; y: number }[]
+    strokes: { id: string; p: number[] }[]
+  } | null>(null)
+  /** Strokes moved along with a zone, still to be rewritten in the Sheet. */
+  const dirtyStrokes = useRef(new Set<string>())
   /** The note being dragged right now, to light up the zone it is over. */
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [strokes, setStrokes] = useState<Stroke[]>([])
@@ -226,20 +233,23 @@ export function BoardView({ source }: { source: Source }) {
       dirty.current.clear()
       const zoneIds = new Set(dirtyZones.current)
       dirtyZones.current.clear()
-      if (patches.length === 0 && zoneIds.size === 0) return
+      const strokeIds = new Set(dirtyStrokes.current)
+      dirtyStrokes.current.clear()
+      if (patches.length === 0 && zoneIds.size === 0 && strokeIds.size === 0) return
       setSave({ kind: 'saving' })
       try {
         await saveTasks(sheetId, patches)
-        await updateBoardRows(
-          sheetId,
-          zonesRef.current.filter((z) => zoneIds.has(z.id)).map((z) => ({ id: z.id, data: encodeZone(z) })),
-        )
+        await updateBoardRows(sheetId, [
+          ...zonesRef.current.filter((z) => zoneIds.has(z.id)).map((z) => ({ id: z.id, data: encodeZone(z) })),
+          ...strokesRef.current.filter((st) => strokeIds.has(st.id)).map((st) => ({ id: st.id, data: encodeStroke(st, 0.3) })),
+        ])
         const saved = new Set(patches.map((p) => p.id))
         setTasks((ts) => ts.map((t) => (saved.has(t.id) ? { ...t, autoPlaced: false } : t)))
         setSave({ kind: 'saved' })
       } catch (e) {
         for (const [id, d] of pending) dirty.current.set(id, { ...dirty.current.get(id), ...d }) // retry later
         zoneIds.forEach((id) => dirtyZones.current.add(id))
+        strokeIds.forEach((id) => dirtyStrokes.current.add(id))
         fail(e)
       }
     })
@@ -298,7 +308,19 @@ export function BoardView({ source }: { source: Source }) {
     const z = zonesRef.current.find((zz) => zz.id === id)
     if (!z) return
     const carried = notesInZone(zonesRef.current, z, tasksRef.current)
-    zoneDrag.current = { x: z.x, y: z.y, notes: carried.map((t) => ({ id: t.id, x: t.board.x, y: t.board.y })) }
+    // Strokes drawn entirely inside the zone travel with it; the ones crossing its border stay.
+    const inside = strokesRef.current.filter((st) => {
+      for (let i = 0; i < st.p.length; i += 2) {
+        if (st.p[i] < z.x || st.p[i] > z.x + z.w || st.p[i + 1] < z.y || st.p[i + 1] > z.y + z.h) return false
+      }
+      return true
+    })
+    zoneDrag.current = {
+      x: z.x,
+      y: z.y,
+      notes: carried.map((t) => ({ id: t.id, x: t.board.x, y: t.board.y })),
+      strokes: inside.map((st) => ({ id: st.id, p: st.p })),
+    }
   }
 
   const onZoneDrag = (id: string, x: number, y: number) => {
@@ -307,6 +329,15 @@ export function BoardView({ source }: { source: Source }) {
     const dx = x - d.x
     const dy = y - d.y
     patchZone(id, { x, y })
+    if (d.strokes.length) {
+      const moved = new Map(d.strokes.map((st) => [st.id, st.p]))
+      setStrokes((ss) =>
+        ss.map((st) => {
+          const p = moved.get(st.id)
+          return p ? { ...st, p: p.map((v, i) => Math.round((v + (i % 2 === 0 ? dx : dy)) * 10) / 10) } : st
+        }),
+      )
+    }
     const carried = new Map(d.notes.map((n) => [n.id, n]))
     // The notes inside move with the zone.
     setTasks((ts) =>
@@ -322,6 +353,10 @@ export function BoardView({ source }: { source: Source }) {
     zoneDrag.current = null
     markZoneDirty(id)
     d?.notes.forEach((n) => markDirty(n.id, 'board'))
+    if (d?.strokes.length) {
+      d.strokes.forEach((st) => dirtyStrokes.current.add(st.id))
+      markZoneDirty(id) // schedules the flush that writes the strokes too
+    }
   }
 
   const onZoneResizeEnd = (id: string) => {

@@ -68,4 +68,4 @@ A zone is a rectangle with a name; its name is the status. Zones are rows of typ
 - Dropping a note in a zone sets the note's `status` to the zone's name. Dropping it outside every zone keeps its status.
 - The Sheet is the source of truth: on load, a note with no saved position goes into the zone named like its status,
   and a note sitting in a zone whose status names a *different* zone moves there. Notes outside every zone stay put.
-- Moving a zone carries the notes inside it. Renaming or resizing a zone gives its name as status to the notes inside.
+- Moving a zone carries the notes inside it, and the board strokes drawn entirely inside it. Renaming or resizing a zone gives its name as status to the notes inside.
