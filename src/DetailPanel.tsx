@@ -3,6 +3,16 @@ import { DateField } from './DateField'
 import { isoOf, type Field } from './fields'
 import type { Task } from './types'
 
+/** A link seen from the note whose panel is open. */
+export interface LinkRow {
+  id: string
+  /** Title of the note at the other end. */
+  title: string
+  /** `out`: this note points at the other one; `in`: the other points at this one. */
+  dir: 'out' | 'in'
+  arrow: boolean
+}
+
 interface Props {
   task: Task
   /** Every custom column, shown on notes or not. */
@@ -14,10 +24,12 @@ interface Props {
   onDescription: (id: string, text: string) => void
   onStatus: (id: string, status: string) => void
   onValue: (id: string, field: Field, input: string | boolean) => void
+  links: LinkRow[]
+  onRemoveLink: (id: string) => void
 }
 
 /** Side panel (bottom sheet on phones) with every column of the selected note. */
-export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitle, onDescription, onStatus, onValue }: Props) {
+export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitle, onDescription, onStatus, onValue, links, onRemoveLink }: Props) {
   // Escape closes the panel (and only the panel).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -78,6 +90,25 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
             <p className="read">{status || '—'}</p>
           )}
         </label>
+
+        {links.length > 0 && (
+          <div className="links-list">
+            <span>Links</span>
+            <ul>
+              {links.map((l) => (
+                <li key={l.id}>
+                  <span aria-hidden>{!l.arrow ? '—' : l.dir === 'out' ? '→' : '←'}</span>
+                  <em>{l.title || 'Untitled'}</em>
+                  {editable && (
+                    <button onClick={() => onRemoveLink(l.id)} aria-label={`Remove link to ${l.title}`}>
+                      ✕
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {fields.map((f) => (
           <FieldRow key={f.key} field={f} task={task} editable={editable} onValue={onValue} />

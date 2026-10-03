@@ -1,9 +1,10 @@
 import { NOTE_COLORS, NOTE_SIZE, NOTE_STEP } from '../constants'
 import { DRAWING_TAB, REQUIRED_COLUMNS, TASKS_TAB } from '../config'
 import { decodeNoteDrawing, decodeStroke, encodeNoteDrawing, encodeStroke } from '../board/ink'
+import { decodeLink } from '../board/links'
 import { decodeZone } from '../board/zones'
 import { columnsOf, type Cell, type Column, type FieldMeta } from '../fields'
-import type { BoardInfo, Stroke, Task, Zone } from '../types'
+import type { BoardInfo, Link, Stroke, Task, Zone } from '../types'
 import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -399,6 +400,7 @@ const isMissingTab = (e: unknown) => e instanceof SheetError && e.fix?.kind === 
 export interface BoardData {
   strokes: Stroke[]
   zones: Zone[]
+  links: Link[]
 }
 
 /** Reads strokes and zones. A Sheet without the `_board` tab simply has neither. */
@@ -407,7 +409,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     const res = (await api(
       `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
     )) as { values?: unknown[][] }
-    const out: BoardData = { strokes: [], zones: [] }
+    const out: BoardData = { strokes: [], zones: [], links: [] }
     for (const r of (res.values ?? []).slice(1)) {
       const id = String(r[0] ?? '')
       const type = String(r[1] ?? '')
@@ -417,11 +419,14 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
       } else if (type === 'zone') {
         const z = decodeZone(id, r[2])
         if (z) out.zones.push(z)
+      } else if (type === 'link') {
+        const l = decodeLink(id, r[2])
+        if (l) out.links.push(l)
       }
     }
     return out
   } catch (e) {
-    if (isMissingTab(e)) return { strokes: [], zones: [] }
+    if (isMissingTab(e)) return { strokes: [], zones: [], links: [] }
     throw e
   }
 }
@@ -444,7 +449,7 @@ async function createBoardTab(sheetId: string): Promise<void> {
 }
 
 /** Appends a row, creating the `_board` tab first if this is the Sheet's first one. */
-export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone', data: string): Promise<void> {
+export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link', data: string): Promise<void> {
   const url = `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${DRAWING_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
   const body = { values: [[rowId, type, data]] }
   try {

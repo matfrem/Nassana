@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NOTE_SIZE } from '../constants'
 import type { Chip } from '../fields'
-import type { Camera, Stroke, Task, Zone } from '../types'
+import type { Camera, Link, Stroke, Task, Zone } from '../types'
 import { clampZoom, screenToWorld, zoomAt } from './camera'
 import { hitsStroke } from './ink'
 import { Ink, type Clip } from './Ink'
+import { LinksLayer, type LinkItem, type LiveLink } from './LinksLayer'
+import { distToSeg, segmentBetween, segmentToPoint } from './links'
 import { StickyNote } from './StickyNote'
 import { zoneOfNote } from './zones'
 import { ZoneView } from './ZoneView'
 
-export type Tool = 'none' | 'pen' | 'eraser' | 'zone' | 'move'
+export type Tool = 'none' | 'pen' | 'eraser' | 'zone' | 'move' | 'link'
 
 /** A stroke on the board (no noteId) or on a note. */
 export interface StrokeRef {
@@ -32,6 +34,12 @@ interface Props {
   onChip: (chip: Chip) => void
   /** A tap on a note while not editing (opens its details). */
   onNoteOpen: (id: string) => void
+  links: Link[]
+  selectedLinkId: string | null
+  /** Tap on a link's line (Edit mode). */
+  onLinkSelect: (id: string) => void
+  /** The user dragged from note `from` and let go on note `to`. */
+  onLinkCreate: (from: string, to: string) => void
   zones: Zone[]
   selectedZoneId: string | null
   editingZoneId: string | null
@@ -75,7 +83,7 @@ const GRID = 40
 const TAP_SLOP = 4
 const ERASER_RADIUS = 12 // screen px
 
-type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move'
+type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move' | 'link'
 
 export function Board({
   tasks,
@@ -90,6 +98,10 @@ export function Board({
   noteView,
   onChip,
   onNoteOpen,
+  links,
+  selectedLinkId,
+  onLinkSelect,
+  onLinkCreate,
   zones,
   selectedZoneId,
   editingZoneId,
@@ -136,6 +148,8 @@ export function Board({
     max: { x: number; y: number }
     moved: boolean
   } | null>(null)
+  const linkFrom = useRef<string | null>(null)
+  const [liveLink, setLiveLink] = useState<LiveLink | null>(null)
   const zoneStart = useRef<{ x: number; y: number } | null>(null)
   const [liveZone, setLiveZone] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [panning, setPanning] = useState(false)
@@ -187,6 +201,18 @@ export function Board({
     return null
   }
 
+  /** Updates the dotted line being pulled out of the source note. */
+  const updateLive = (x: number, y: number) => {
+    const src = tasksRef.current.find((t) => t.id === linkFrom.current)
+    if (!src) return setLiveLink(null)
+    const over = noteAt(x, y)
+    const target = over && over.id !== src.id ? over : null
+    setLiveLink({
+      seg: target ? segmentBetween(src, target) : segmentToPoint(src, x, y),
+      target: target ? { x: target.board.x, y: target.board.y } : null,
+    })
+  }
+
   const showLive = () => {
     const l = live.current
     setLiveStroke(l ? { id: 'live', c: penColor, w: l.width, p: l.pts } : null)
@@ -219,6 +245,8 @@ export function Board({
     if (mode.current === 'erase') onEraseEnd()
     zoneStart.current = null
     setLiveZone(null)
+    linkFrom.current = null
+    setLiveLink(null)
     if (mode.current === 'move' && moving.current?.moved) onStrokeMoveEnd(moving.current.ref)
     moving.current = null
     live.current = null
@@ -263,6 +291,15 @@ export function Board({
     } else if (tool === 'zone') {
       zoneStart.current = world(e)
       mode.current = 'zone'
+    } else if (tool === 'link') {
+      // Start on a note to pull a link out of it; start on empty space to pan as usual.
+      const w = world(e)
+      const n = noteAt(w.x, w.y)
+      if (n) {
+        linkFrom.current = n.id
+        mode.current = 'link'
+        updateLive(w.x, w.y)
+      } else mode.current = 'pan'
     } else if (tool === 'move') {
       // Press on a stroke to pick it and drag it; press on empty space to drop the selection.
       const w = world(e)
@@ -321,6 +358,9 @@ export function Board({
       }
     } else if (mode.current === 'erase') {
       erase(e)
+    } else if (mode.current === 'link' && linkFrom.current) {
+      const w = world(e)
+      updateLive(w.x, w.y)
     } else if (mode.current === 'move' && moving.current) {
       const m = moving.current
       const w = world(e)
@@ -349,6 +389,13 @@ export function Board({
       onStroke(live.current.pts, live.current.width, live.current.noteId)
     } else if (mode.current === 'erase') {
       onEraseEnd()
+    } else if (mode.current === 'link') {
+      const from = linkFrom.current
+      const w = world(e)
+      const to = noteAt(w.x, w.y)
+      if (finished && from && to && to.id !== from) onLinkCreate(from, to.id)
+      linkFrom.current = null
+      setLiveLink(null)
     } else if (mode.current === 'move') {
       if (moving.current?.moved) onStrokeMoveEnd(moving.current.ref)
       moving.current = null
@@ -361,7 +408,12 @@ export function Board({
     } else if (mode.current === 'pan' && finished && !tap.current.moved) {
       // A tap on a note opens its details; a tap on the empty background deselects.
       if (tap.current.noteId) onNoteOpen(tap.current.noteId)
-      else onSelect(null)
+      else {
+        const w = world(e)
+        const hit = editable && tool === 'none' ? linkItems.find((it) => distToSeg(it.seg, w.x, w.y) <= 14 / camRef.current.zoom) : undefined
+        if (hit) onLinkSelect(hit.link.id)
+        else onSelect(null)
+      }
     }
     live.current = null
     showLive()
@@ -371,6 +423,16 @@ export function Board({
 
   const gridSize = GRID * camera.zoom
   const level = camera.zoom < 0.45 ? 0 : camera.zoom < 0.8 ? 1 : 2
+  const linkItems = useMemo<LinkItem[]>(() => {
+    const byId = new Map(tasks.map((t) => [t.id, t]))
+    return links.flatMap((link) => {
+      const a = byId.get(link.from)
+      const b = byId.get(link.to)
+      const seg = a && b ? segmentBetween(a, b) : null
+      return a && b && seg ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim }] : []
+    })
+  }, [links, tasks, noteView])
+
   const counts = useMemo(() => {
     const m = new Map<string, number>()
     for (const t of tasks) {
@@ -430,6 +492,7 @@ export function Board({
             style={{ transform: `translate(${liveZone.x}px, ${liveZone.y}px)`, width: liveZone.w, height: liveZone.h }}
           />
         )}
+        <LinksLayer items={linkItems} selectedId={selectedLinkId} live={liveLink} zoom={camera.zoom} />
         {tasks.map((t) => {
           const v = noteView(t)
           return (

@@ -27,6 +27,7 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Zones = scrum board: a note dropped in a zone takes the zone's name as its `status`
 - [x] Custom properties: `xxx#` columns become pills on notes; details panel; quick filter; color-by; zone counters + WIP limit
 - [x] Move tool for strokes (press a stroke and drag; board strokes and note strokes)
+- [x] Links between notes: dotted line with an arrow, drag from one note to another (rows of type `link` in `_board`)
 - [x] Two-finger pan + zoom on touch screens
 
 ## Sheet format
@@ -89,3 +90,10 @@ In Edit mode, tap a note or a zone's title strip to select it; the bottom bar of
 **Duplicate**, plus Delete. Double-tap opens the details directly. Notes and zones are renamed in their details panel;
 a zone's panel also holds its color and work-in-progress limit. Dates are typed with the numeric keypad (`15012030`),
 picked from the calendar button, or set with the Today / Tomorrow / +1 week shortcuts.
+
+## Links
+
+The **⤳ Link** tool (Edit mode): press a note, drag to another note, let go. A dotted line with an arrow pointing at the
+second note is drawn border to border and follows the notes. Tap a line to toggle its arrow or delete it; a note's details
+panel lists its links and can remove them. Deleting a note deletes its links. A link is a row `id | link | {"from","to","arrow"}`
+in the `_board` tab, so adding or removing one never rewrites a task row.

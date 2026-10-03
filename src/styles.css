@@ -574,3 +574,28 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* ---- links between notes ---- */
+:root { --link: #475569; }
+@media (prefers-color-scheme: dark) { :root { --link: #94a3b8; } }
+.links { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+.links { --lw: max(4px, calc(2.5px / var(--zoom, 1))); }
+.link-line {
+  stroke: var(--link);
+  stroke-width: var(--lw); /* at least 2.5 screen pixels, whatever the zoom */
+  stroke-dasharray: 0.1 calc(var(--lw) * 2.2); /* round caps turn the zero-length dashes into dots */
+  stroke-linecap: round;
+  fill: none;
+}
+.link-arrow { fill: var(--link); }
+.link-halo { stroke: var(--accent); stroke-opacity: 0.35; stroke-linecap: round; stroke-width: calc(16px / var(--zoom, 1)); }
+.link.dim { opacity: 0.2; }
+.link.live .link-line, .link.live .link-arrow { stroke: var(--accent); fill: var(--accent); }
+.link.live .link-line { fill: none; }
+.link-target { fill: none; stroke: var(--accent); stroke-width: 4; stroke-dasharray: none; }
+
+.links-list { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.links-list > span { font-weight: 600; opacity: 0.75; }
+.links-list ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.links-list li { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.links-list li em { flex: 1; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

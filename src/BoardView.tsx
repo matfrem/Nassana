@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Board, type StrokeRef, type Tool } from './board/Board'
 import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
+import { encodeLink } from './board/links'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
 import { demoTasks } from './data'
-import { DetailPanel } from './DetailPanel'
+import { DetailPanel, type LinkRow } from './DetailPanel'
 import { ZonePanel } from './ZonePanel'
 import {
   buildFields,
@@ -38,7 +39,7 @@ import {
   updateBoardRows,
 } from './google/sheets'
 import { rememberSheet } from './recent'
-import type { Camera, Stroke, Task, Zone } from './types'
+import type { Camera, Link, Stroke, Task, Zone } from './types'
 
 export type Source = { kind: 'demo' } | { kind: 'sheet'; id: string }
 
@@ -103,6 +104,12 @@ export function BoardView({ source }: { source: Source }) {
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
   /** Zones whose geometry/name/color still has to be written to the Sheet. */
+  const [links, setLinks] = useState<Link[]>([])
+  const linksRef = useRef(links)
+  linksRef.current = links
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null)
+  /** Links whose options changed, still to be rewritten in the Sheet. */
+  const dirtyLinks = useRef(new Set<string>())
   const dirtyZones = useRef(new Set<string>())
   /** While a zone is dragged: where it started and the notes it carries along. */
   const zoneDrag = useRef<{
@@ -161,6 +168,7 @@ export function BoardView({ source }: { source: Source }) {
         if (board) {
           setStrokes(board.strokes)
           setZones(board.zones)
+          setLinks(board.links)
         }
         setWarnings(board ? data.warnings : [...data.warnings, 'Could not load the drawing and zones.'])
         setUpdatedAt(new Date())
@@ -273,13 +281,16 @@ export function BoardView({ source }: { source: Source }) {
       dirtyZones.current.clear()
       const strokeIds = new Set(dirtyStrokes.current)
       dirtyStrokes.current.clear()
-      if (patches.length === 0 && zoneIds.size === 0 && strokeIds.size === 0) return
+      const linkIds = new Set(dirtyLinks.current)
+      dirtyLinks.current.clear()
+      if (patches.length === 0 && zoneIds.size === 0 && strokeIds.size === 0 && linkIds.size === 0) return
       setSave({ kind: 'saving' })
       try {
         await saveTasks(sheetId, patches)
         await updateBoardRows(sheetId, [
           ...zonesRef.current.filter((z) => zoneIds.has(z.id)).map((z) => ({ id: z.id, data: encodeZone(z) })),
           ...strokesRef.current.filter((st) => strokeIds.has(st.id)).map((st) => ({ id: st.id, data: encodeStroke(st, 0.3) })),
+          ...linksRef.current.filter((l) => linkIds.has(l.id)).map((l) => ({ id: l.id, data: encodeLink(l) })),
         ])
         const saved = new Set(patches.map((p) => p.id))
         setTasks((ts) => ts.map((t) => (saved.has(t.id) ? { ...t, autoPlaced: false } : t)))
@@ -291,6 +302,7 @@ export function BoardView({ source }: { source: Source }) {
         }
         zoneIds.forEach((id) => dirtyZones.current.add(id))
         strokeIds.forEach((id) => dirtyStrokes.current.add(id))
+        linkIds.forEach((id) => dirtyLinks.current.add(id))
         fail(e)
       }
     })
@@ -582,6 +594,52 @@ export function BoardView({ source }: { source: Source }) {
     })
   }
 
+  /** Drag from one note to another: a new link, with an arrow pointing at the second note. */
+  const onLinkCreate = (from: string, to: string) => {
+    if (linksRef.current.some((l) => l.from === from && l.to === to)) return // already linked that way
+    const link: Link = { id: crypto.randomUUID().slice(0, 8), from, to, arrow: true }
+    setLinks((ls) => [...ls, link])
+    setSelectedLinkId(link.id)
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await appendBoardRow(sheetId, link.id, 'link', encodeLink(link))
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        setLinks((ls) => ls.filter((l) => l.id !== link.id))
+        fail(e)
+      }
+    })
+  }
+
+  const removeLinks = (ids: string[]) => {
+    if (ids.length === 0) return
+    const gone = new Set(ids)
+    setLinks((ls) => ls.filter((l) => !gone.has(l.id)))
+    setSelectedLinkId((s) => (s && gone.has(s) ? null : s))
+    ids.forEach((id) => dirtyLinks.current.delete(id))
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await deleteBoardRows(sheetId, ids)
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        fail(e)
+        void load(true) // bring the links back: the Sheet still has them
+      }
+    })
+  }
+
+  const toggleLinkArrow = (id: string) => {
+    setLinks((ls) => ls.map((l) => (l.id === id ? { ...l, arrow: !l.arrow } : l)))
+    if (!sheetId) return
+    dirtyLinks.current.add(id)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
+  }
+
   const deleteSelected = () => {
     const task = tasks.find((t) => t.id === selectedId)
     if (!task) return
@@ -591,11 +649,14 @@ export function BoardView({ source }: { source: Source }) {
     setTasks((ts) => ts.filter((t) => t.id !== task.id))
     setSelectedId(null)
     dirty.current.delete(task.id)
+    const linkIds = linksRef.current.filter((l) => l.from === task.id || l.to === task.id).map((l) => l.id)
+    setLinks((ls) => ls.filter((l) => !linkIds.includes(l.id)))
     if (!sheetId) return
     setSave({ kind: 'saving' })
     void enqueue(async () => {
       try {
         await deleteTask(sheetId, task.id)
+        await deleteBoardRows(sheetId, linkIds) // its links go with it
         setSave({ kind: 'saved' })
       } catch (e) {
         fail(e)
@@ -726,6 +787,7 @@ export function BoardView({ source }: { source: Source }) {
       setEditingZoneId(null)
       setZoneDetailId(null)
       setSelectedStroke(null)
+      setSelectedLinkId(null)
       setTool('none')
       await flush() // do not leave edit mode (which resumes polling) with unsaved changes
       setEditable(false)
@@ -750,6 +812,14 @@ export function BoardView({ source }: { source: Source }) {
   // ---- properties: fields, pills, filter, color-by ----
   const fields = useMemo(() => buildFields(columns, tasks, meta), [columns, tasks, meta])
   const shownFields = useMemo(() => fields.filter((f) => f.shown), [fields])
+
+  /** The links of a note, with the title of the note at the other end. */
+  const linksOf = (id: string): LinkRow[] =>
+    links.flatMap((l) => {
+      if (l.from !== id && l.to !== id) return []
+      const other = tasks.find((t) => t.id === (l.from === id ? l.to : l.from))
+      return other ? [{ id: l.id, title: other.title, dir: l.from === id ? ('out' as const) : ('in' as const), arrow: l.arrow }] : []
+    })
 
   const setColorBy = (key: string) => {
     setColorByState(key)
@@ -836,6 +906,7 @@ export function BoardView({ source }: { source: Source }) {
         onSelect={(id) => {
           setSelectedId(id)
           setSelectedZoneId(null)
+          setSelectedLinkId(null)
           if (!id) {
             setDetailId(null)
             setZoneDetailId(null)
@@ -856,6 +927,14 @@ export function BoardView({ source }: { source: Source }) {
           const t = draggingId ? tasks.find((n) => n.id === draggingId) : undefined
           return t ? (zoneAt(zones, centerOf(t).x, centerOf(t).y)?.id ?? null) : null
         })()}
+        links={links}
+        selectedLinkId={editable && tool === 'none' ? selectedLinkId : null}
+        onLinkSelect={(id) => {
+          setSelectedLinkId(id)
+          setSelectedId(null)
+          setSelectedZoneId(null)
+        }}
+        onLinkCreate={onLinkCreate}
         onZoneOpen={(id) => {
           setZoneDetailId(id)
           setSelectedZoneId(id)
@@ -922,6 +1001,21 @@ export function BoardView({ source }: { source: Source }) {
             }}
           >
             ✏<span className="label"> Draw</span>
+          </button>
+        )}
+        {editable && (
+          <button
+            className={tool === 'link' ? 'primary' : ''}
+            aria-label="Link"
+            onClick={() => {
+              setSelectedId(null)
+              setSelectedZoneId(null)
+              setSelectedLinkId(null)
+              setEditingId(null)
+              setTool((t) => (t === 'link' ? 'none' : 'link'))
+            }}
+          >
+            ⤳<span className="label"> Link</span>
           </button>
         )}
         {editable && (
@@ -1052,6 +1146,24 @@ export function BoardView({ source }: { source: Source }) {
         </div>
       )}
 
+      {editable && tool === 'link' && (
+        <div className="selection-bar zone-bar">
+          <span>Drag from one note to another to link them</span>
+          <button onClick={() => setTool('none')}>Done</button>
+        </div>
+      )}
+
+      {editable && tool === 'none' && selectedLinkId && (
+        <div className="selection-bar">
+          <button onClick={() => toggleLinkArrow(selectedLinkId)}>
+            {links.find((l) => l.id === selectedLinkId)?.arrow ? '→ Arrow: on' : '— Arrow: off'}
+          </button>
+          <button className="danger" onClick={() => removeLinks([selectedLinkId])}>
+            🗑 Delete link
+          </button>
+        </div>
+      )}
+
       {editable && tool === 'zone' && (
         <div className="selection-bar zone-bar">
           <span>Drag on the board to draw a zone</span>
@@ -1123,6 +1235,8 @@ export function BoardView({ source }: { source: Source }) {
           onDescription={onDescription}
           onStatus={onStatus}
           onValue={onValue}
+          links={linksOf(detailId)}
+          onRemoveLink={(id) => removeLinks([id])}
         />
       )}
 

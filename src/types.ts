@@ -53,3 +53,12 @@ export interface Zone {
   /** Work-in-progress limit: the counter turns red above it. */
   limit?: number
 }
+
+/** A dotted line between two notes. */
+export interface Link {
+  id: string
+  /** Task ids. The arrow, if any, points at `to`. */
+  from: string
+  to: string
+  arrow: boolean
+}
