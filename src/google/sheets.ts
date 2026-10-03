@@ -4,7 +4,7 @@ import { decodeNoteDrawing, decodeStroke, encodeNoteDrawing, encodeStroke } from
 import { decodeLink } from '../board/links'
 import { decodeZone } from '../board/zones'
 import { columnsOf, type Cell, type Column, type FieldMeta } from '../fields'
-import type { BoardInfo, Link, Stroke, Task, Zone } from '../types'
+import type { BoardInfo, ColorRule, Link, Stroke, Task, Zone } from '../types'
 import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
 export const API = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -33,6 +33,10 @@ export interface SheetData {
   tasks: Task[]
   /** Custom columns (everything besides id, title, description, board, drawing, status). */
   columns: Column[]
+  /** Sheet rows (1-based) that have a title but no id, so the board cannot show them. */
+  missingIdRows: number[]
+  /** Index of the `id` column. */
+  idColumn: number
   /** Non-fatal problems (e.g. rows skipped), shown to the user. */
   warnings: string[]
 }
@@ -97,8 +101,8 @@ export async function fetchSheet(sheetId: string): Promise<SheetData> {
     api(`${API}/${id}/values/${encodeURIComponent(TASKS_TAB)}?valueRenderOption=UNFORMATTED_VALUE`),
   ])) as [{ properties?: { title?: string } }, { values?: unknown[][] }]
 
-  const { tasks, warnings, columns } = parseTasks(values.values ?? [])
-  return { title: meta.properties?.title ?? 'Untitled sheet', tasks, columns, warnings }
+  const { tasks, warnings, columns, missingIdRows, idColumn } = parseTasks(values.values ?? [])
+  return { title: meta.properties?.title ?? 'Untitled sheet', tasks, columns, missingIdRows, idColumn, warnings }
 }
 
 const HEX = /^#[0-9a-f]{3,8}$/i
@@ -119,7 +123,13 @@ function parseBoard(raw: unknown): Partial<BoardInfo> {
   }
 }
 
-export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string[]; columns: Column[] } {
+export function parseTasks(rows: unknown[][]): {
+  tasks: Task[]
+  warnings: string[]
+  columns: Column[]
+  missingIdRows: number[]
+  idColumn: number
+} {
   if (rows.length === 0) throw new SheetError(`The "${TASKS_TAB}" tab is empty. It needs a header row.`, { kind: 'empty' })
 
   const header = rows[0].map((h) => String(h ?? '').trim().toLowerCase())
@@ -138,13 +148,18 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
   const seen = new Set<string>()
   const tasks: Task[] = []
   let skippedNoId = 0
+  const missingIdRows: number[] = []
   let skippedDup = 0
 
   rows.slice(1).forEach((row, n) => {
     const id = String(row[iId] ?? '').trim()
     const title = String(row[iTitle] ?? '').trim()
     if (!id && !title) return // blank row
-    if (!id) return void skippedNoId++
+    if (!id) {
+      skippedNoId++
+      missingIdRows.push(n + 2) // +1 for the header, +1 because sheet rows start at 1
+      return
+    }
     if (seen.has(id)) return void skippedDup++
     seen.add(id)
     const b = iBoard >= 0 ? parseBoard(row[iBoard]) : {}
@@ -165,7 +180,7 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
   if (skippedNoId) warnings.push(`${skippedNoId} row(s) skipped: empty id.`)
   if (skippedDup) warnings.push(`${skippedDup} row(s) skipped: duplicate id.`)
   autoPlace(tasks)
-  return { tasks, warnings, columns }
+  return { tasks, warnings, columns, missingIdRows, idColumn: iId }
 }
 
 /** Puts tasks without a saved position on a grid, below the notes that already have one. */
@@ -401,6 +416,7 @@ export interface BoardData {
   strokes: Stroke[]
   zones: Zone[]
   links: Link[]
+  colors: ColorRule[]
 }
 
 /** Reads strokes and zones. A Sheet without the `_board` tab simply has neither. */
@@ -409,7 +425,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     const res = (await api(
       `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
     )) as { values?: unknown[][] }
-    const out: BoardData = { strokes: [], zones: [], links: [] }
+    const out: BoardData = { strokes: [], zones: [], links: [], colors: [] }
     for (const r of (res.values ?? []).slice(1)) {
       const id = String(r[0] ?? '')
       const type = String(r[1] ?? '')
@@ -419,6 +435,9 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
       } else if (type === 'zone') {
         const z = decodeZone(id, r[2])
         if (z) out.zones.push(z)
+      } else if (type === 'color') {
+        const c = decodeColor(r[2])
+        if (c) out.colors.push(c)
       } else if (type === 'link') {
         const l = decodeLink(id, r[2])
         if (l) out.links.push(l)
@@ -426,7 +445,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     }
     return out
   } catch (e) {
-    if (isMissingTab(e)) return { strokes: [], zones: [], links: [] }
+    if (isMissingTab(e)) return { strokes: [], zones: [], links: [], colors: [] }
     throw e
   }
 }
@@ -449,7 +468,7 @@ async function createBoardTab(sheetId: string): Promise<void> {
 }
 
 /** Appends a row, creating the `_board` tab first if this is the Sheet's first one. */
-export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link', data: string): Promise<void> {
+export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link' | 'color', data: string): Promise<void> {
   const url = `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${DRAWING_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
   const body = { values: [[rowId, type, data]] }
   try {
@@ -599,6 +618,13 @@ export async function fetchFieldMeta(sheetId: string, columns: Column[], rowCoun
         } else if (rule.type === 'BOOLEAN') m.checkbox = true
         else if (rule.type.startsWith('DATE_')) m.dateValidation = true
       }
+      // A fill shared by several values is a row or banding color, not that value's color: ignore it.
+      if (m.colors) {
+        const users = new Map<string, string[]>()
+        for (const [value, hex] of Object.entries(m.colors)) users.set(hex, [...(users.get(hex) ?? []), value])
+        for (const values of users.values()) if (values.length > 1) for (const v of values) delete m.colors[v]
+        if (Object.keys(m.colors).length === 0) delete m.colors
+      }
       if (m.options || m.checkbox || m.dateFormat || m.dateValidation || m.colors) meta[c.key] = m
     }
     return meta
@@ -606,4 +632,32 @@ export async function fetchFieldMeta(sheetId: string, columns: Column[], rowCoun
     if (e instanceof AuthRequiredError) throw e
     return {}
   }
+}
+
+// ---------------------------------------------------------------------------------
+// Colors picked in the app for values of a column (the API cannot read dropdown-chip colors)
+// ---------------------------------------------------------------------------------
+
+export const colorRowId = (c: Pick<ColorRule, 'key' | 'raw'>) => `color:${c.key}|${c.raw}`
+export const encodeColor = (c: ColorRule) => JSON.stringify({ key: c.key, value: c.raw, color: c.color })
+
+function decodeColor(raw: unknown): ColorRule | null {
+  if (typeof raw !== 'string') return null
+  try {
+    const o = JSON.parse(raw) as { key?: unknown; value?: unknown; color?: unknown }
+    if (typeof o.key !== 'string' || typeof o.value !== 'string' || typeof o.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(o.color)) return null
+    return { key: o.key, raw: o.value, color: o.color }
+  } catch {
+    return null
+  }
+}
+
+/** Gives each of the Sheet rows (1-based) a fresh id, so the board can show them. Only empty id cells are written. */
+export async function assignIds(sheetId: string, rows: number[], idColumn: number): Promise<void> {
+  if (rows.length === 0) return
+  const data = rows.map((row) => ({
+    range: `${TASKS_TAB}!${columnLetter(idColumn)}${row}`,
+    values: [[crypto.randomUUID().slice(0, 8)]],
+  }))
+  await api(`${API}/${encodeURIComponent(sheetId)}/values:batchUpdate`, { method: 'POST', body: { valueInputOption: 'RAW', data } })
 }

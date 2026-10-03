@@ -29,6 +29,9 @@ import {
   appendTask,
   appendStroke,
   applySetupFix,
+  assignIds,
+  colorRowId,
+  encodeColor,
   deleteBoardRows,
   deleteTask,
   fetchBoardData,
@@ -41,7 +44,7 @@ import {
   updateBoardRows,
 } from './google/sheets'
 import { rememberSheet } from './recent'
-import type { Camera, Link, Stroke, Task, Zone } from './types'
+import type { Camera, ColorRule, Link, Stroke, Task, Zone } from './types'
 
 export type Source = { kind: 'demo' } | { kind: 'sheet'; id: string }
 
@@ -50,6 +53,11 @@ type Status =
   | { kind: 'signin' }
   | { kind: 'error'; message: string; fix?: SetupFix }
   | { kind: 'ready' }
+
+/** The task's value for a column; `status` is not a custom column but can be colored and filtered like one. */
+const valueOf = (t: Task, key: string) => (key === 'status' ? t.status : t.values?.[key])
+
+const STATUS_FIELD: Field = { key: 'status', label: 'Status', index: -1, shown: false, type: 'text' }
 
 const POLL_MS = 30_000
 const SAVE_DELAY_MS = 800
@@ -102,6 +110,14 @@ export function BoardView({ source }: { source: Source }) {
   const [viewMenu, setViewMenu] = useState(false)
   const [showColumns, setShowColumns] = useState(false)
   const [zones, setZones] = useState<Zone[]>([])
+  /** Colors picked in the app, by `key|value`. They win over what the Sheet says. */
+  const [colorRules, setColorRules] = useState<Record<string, ColorRule>>({})
+  const colorRulesRef = useRef(colorRules)
+  colorRulesRef.current = colorRules
+  /** Ids of color rows that already exist in the Sheet (to update them rather than append). */
+  const knownColors = useRef(new Set<string>())
+  const dirtyColors = useRef(new Set<string>())
+  const [missingIds, setMissingIds] = useState<{ rows: number[]; column: number }>({ rows: [], column: 0 })
   const zonesRef = useRef(zones)
   zonesRef.current = zones
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
@@ -167,11 +183,14 @@ export function BoardView({ source }: { source: Source }) {
         const tasks = applyZones(data.tasks, board ? board.zones : zonesRef.current)
         setTasks(tasks)
         setColumns(data.columns)
+        setMissingIds({ rows: data.missingIdRows, column: data.idColumn })
         setTitle(data.title)
         if (board) {
           setStrokes(board.strokes)
           setZones(board.zones)
           setLinks(board.links)
+          setColorRules(Object.fromEntries(board.colors.map((c) => [`${c.key}|${c.raw}`, c])))
+          knownColors.current = new Set(board.colors.map(colorRowId))
         }
         setWarnings(board ? data.warnings : [...data.warnings, 'Could not load the drawing and zones.'])
         setUpdatedAt(new Date())
@@ -286,7 +305,9 @@ export function BoardView({ source }: { source: Source }) {
       dirtyStrokes.current.clear()
       const linkIds = new Set(dirtyLinks.current)
       dirtyLinks.current.clear()
-      if (patches.length === 0 && zoneIds.size === 0 && strokeIds.size === 0 && linkIds.size === 0) return
+      const colorIds = new Set(dirtyColors.current)
+      dirtyColors.current.clear()
+      if (patches.length === 0 && zoneIds.size === 0 && strokeIds.size === 0 && linkIds.size === 0 && colorIds.size === 0) return
       setSave({ kind: 'saving' })
       try {
         await saveTasks(sheetId, patches)
@@ -295,6 +316,16 @@ export function BoardView({ source }: { source: Source }) {
           ...strokesRef.current.filter((st) => strokeIds.has(st.id)).map((st) => ({ id: st.id, data: encodeStroke(st, 0.3) })),
           ...linksRef.current.filter((l) => linkIds.has(l.id)).map((l) => ({ id: l.id, data: encodeLink(l) })),
         ])
+        // Colors picked in the app: update the row if it exists, otherwise create it.
+        for (const rule of Object.values(colorRulesRef.current)) {
+          const id = colorRowId(rule)
+          if (!colorIds.has(id)) continue
+          if (knownColors.current.has(id)) await updateBoardRows(sheetId, [{ id, data: encodeColor(rule) }])
+          else {
+            await appendBoardRow(sheetId, id, 'color', encodeColor(rule))
+            knownColors.current.add(id)
+          }
+        }
         const saved = new Set(patches.map((p) => p.id))
         setTasks((ts) => ts.map((t) => (saved.has(t.id) ? { ...t, autoPlaced: false } : t)))
         setSave({ kind: 'saved' })
@@ -306,6 +337,7 @@ export function BoardView({ source }: { source: Source }) {
         zoneIds.forEach((id) => dirtyZones.current.add(id))
         strokeIds.forEach((id) => dirtyStrokes.current.add(id))
         linkIds.forEach((id) => dirtyLinks.current.add(id))
+        colorIds.forEach((id) => dirtyColors.current.add(id))
         fail(e)
       }
     })
@@ -825,6 +857,21 @@ export function BoardView({ source }: { source: Source }) {
       return other ? [{ id: l.id, title: other.title, dir: l.from === id ? ('out' as const) : ('in' as const), arrow: l.arrow }] : []
     })
 
+  const hasStatus = tasks.some((t) => t.status) || zones.length > 0
+
+  /** Rows with a title but no id are invisible to the board: write a fresh id in each (on request). */
+  const giveIds = async () => {
+    if (!sheetId) return
+    const n = missingIds.rows.length
+    if (!window.confirm(`${n} row${n === 1 ? ' has' : 's have'} a title but no id, so the board can’t show ${n === 1 ? 'it' : 'them'}.\n\nWrite a new id in ${n === 1 ? 'that row' : 'those rows'}?`)) return
+    try {
+      await assignIds(sheetId, missingIds.rows, missingIds.column)
+      await load(false)
+    } catch (e) {
+      fail(e)
+    }
+  }
+
   const setColorBy = (key: string) => {
     setColorByState(key)
     setViewMenu(false)
@@ -837,31 +884,47 @@ export function BoardView({ source }: { source: Source }) {
 
   /** Color for each distinct value of the "color by" field (tones for priorities, a palette otherwise). */
   const colorScheme = useMemo(() => {
-    const f = fields.find((x) => x.key === colorBy)
+    const f = colorBy === 'status' ? STATUS_FIELD : fields.find((x) => x.key === colorBy)
     if (!f) return null
     const seen = new Map<string, { raw: string; text: string; color: string }>()
-    const distinct = [...new Set(tasks.map((t) => rawOf(t.values?.[f.key])).filter(Boolean))].sort()
+    const distinct = [...new Set(tasks.map((t) => rawOf(valueOf(t, f.key))).filter(Boolean))].sort()
     for (const t of tasks) {
-      const raw = rawOf(t.values?.[f.key])
+      const v = valueOf(t, f.key)
+      const raw = rawOf(v)
       if (!raw || seen.has(raw)) continue
-      const chip = chipFor(f, t.values?.[f.key])
+      const chip = f.key === 'status' ? null : chipFor(f, v)
       const tone = chip?.tone
       seen.set(raw, {
         raw,
-        text: chip?.value ?? raw,
-        // The color the Sheet itself gives that value wins; otherwise a tone (priorities) or a palette color.
-        color: f.colors?.[raw] ?? (tone ? TONE_COLORS[tone] : NOTE_COLORS[distinct.indexOf(raw) % NOTE_COLORS.length]),
+        text: chip?.value ?? String(v),
+        // In order: a color picked in the app, the zone of that name (status), the Sheet's own color,
+        // a tone (priorities), then a palette color.
+        color:
+          colorRules[`${f.key}|${raw}`]?.color ??
+          (f.key === 'status' ? zones.find((z) => rawOf(z.name) === raw)?.color : undefined) ??
+          f.colors?.[raw] ??
+          (tone ? TONE_COLORS[tone] : NOTE_COLORS[distinct.indexOf(raw) % NOTE_COLORS.length]),
       })
     }
     return { field: f, byRaw: seen }
-  }, [fields, colorBy, tasks])
+  }, [fields, colorBy, tasks, colorRules, zones])
+
+  /** Picks the color of one value of the "color by" column (Edit mode, from the legend). */
+  const setValueColor = (key: string, raw: string, color: string) => {
+    const rule: ColorRule = { key, raw, color }
+    setColorRules((r) => ({ ...r, [`${key}|${raw}`]: rule }))
+    if (!sheetId) return
+    dirtyColors.current.add(colorRowId(rule))
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
+  }
 
   const noteView = useCallback(
     (t: Task) => {
-      const color = colorScheme ? (colorScheme.byRaw.get(rawOf(t.values?.[colorScheme.field.key]))?.color ?? '#E5E7EB') : t.board.color
+      const color = colorScheme ? (colorScheme.byRaw.get(rawOf(valueOf(t, colorScheme.field.key)))?.color ?? '#E5E7EB') : t.board.color
       return {
         chips: shownFields.flatMap((f) => chipFor(f, t.values?.[f.key]) ?? []),
-        dim: filter ? rawOf(t.values?.[filter.key]) !== filter.raw : false,
+        dim: filter ? rawOf(valueOf(t, filter.key)) !== filter.raw : false,
         color,
         ink: inkFor(color), // a dark fill from the Sheet needs light text
       }
@@ -1041,19 +1104,24 @@ export function BoardView({ source }: { source: Source }) {
             ▭<span className="label"> Zone</span>
           </button>
         )}
-        {(fields.length > 0 || (editable && sheetId)) && (
+        {(fields.length > 0 || hasStatus || (editable && sheetId)) && (
           <span className="menu-anchor">
             <button aria-label="View options" className={colorBy ? 'primary' : ''} onClick={() => setViewMenu((v) => !v)}>
               ◐
             </button>
             {viewMenu && (
               <div className="menu">
-                {fields.length > 0 && (
+                {(fields.length > 0 || hasStatus) && (
                   <>
                     <strong>Color notes by</strong>
                     <button className={!colorBy ? 'on' : ''} onClick={() => setColorBy('')}>
                       Manual color
                     </button>
+                    {hasStatus && (
+                      <button className={colorBy === 'status' ? 'on' : ''} onClick={() => setColorBy('status')}>
+                        Status
+                      </button>
+                    )}
                     {fields.map((f) => (
                       <button key={f.key} className={colorBy === f.key ? 'on' : ''} onClick={() => setColorBy(f.key)}>
                         {f.label}
@@ -1221,14 +1289,25 @@ export function BoardView({ source }: { source: Source }) {
         <div className="viewbar">
           {colorScheme &&
             [...colorScheme.byRaw.values()].map((v) => (
-              <button
-                key={v.raw}
-                className={filter?.key === colorScheme.field.key && filter.raw === v.raw ? 'on' : ''}
-                onClick={() => setFilter((f) => (f && f.raw === v.raw && f.key === colorScheme.field.key ? null : { key: colorScheme.field.key, raw: v.raw, text: v.text, label: colorScheme.field.label }))}
-              >
-                <span className="dot" style={{ background: v.color }} />
-                {v.text}
-              </button>
+              <span className="legend-item" key={v.raw}>
+                <button
+                  className={filter?.key === colorScheme.field.key && filter.raw === v.raw ? 'on' : ''}
+                  onClick={() => setFilter((f) => (f && f.raw === v.raw && f.key === colorScheme.field.key ? null : { key: colorScheme.field.key, raw: v.raw, text: v.text, label: colorScheme.field.label }))}
+                >
+                  {editable ? null : <span className="dot" style={{ background: v.color }} />}
+                  {editable && <span className="dot-slot" />}
+                  {v.text}
+                </button>
+                {editable && (
+                  <input
+                    type="color"
+                    className="dot-input"
+                    aria-label={`Color of ${v.text}`}
+                    value={/^#[0-9a-f]{6}$/i.test(v.color) ? v.color : '#cccccc'}
+                    onChange={(e) => setValueColor(colorScheme.field.key, v.raw, e.target.value)}
+                  />
+                )}
+              </span>
             ))}
           {filter && (
             <button className="filter" onClick={() => setFilter(null)}>
@@ -1299,7 +1378,14 @@ export function BoardView({ source }: { source: Source }) {
         <div className="empty-hint">No tasks yet. Add rows with an id and a title in the Sheet, then refresh.</div>
       )}
 
-      {warnings.length > 0 && <div className="warnings">{warnings.join(' ')}</div>}
+      {warnings.length > 0 && (
+        <div className="warnings">
+          {warnings.join(' ')}
+          {sheetId && missingIds.rows.length > 0 && (
+            <button onClick={() => void giveIds()}>Give them an id</button>
+          )}
+        </div>
+      )}
 
       {status.kind !== 'ready' && (
         <div className="overlay">

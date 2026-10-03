@@ -117,3 +117,11 @@ the columns the app manages (`id`, `title`, `description`, `status`, `board`, `d
 the page; **Apply** lists them, re-checks that nobody changed the Sheet's structure, and sends them in a single `batchUpdate`
 (so the Sheet's version history can undo it). Dropdowns become data validation; their colors become one conditional-format
 rule per value, which the board reads back when coloring notes.
+
+## Coloring by a column or by status
+
+`◐` → **Color notes by**: any custom column, or **Status** (each status takes the color of the zone with that name).
+In Edit mode the legend's dots are color pickers: a color picked there is kept in the `_board` tab (rows of type `color`)
+and wins over the Sheet's own color. This exists because the Sheets API cannot read the colors of dropdown *chips*. Colors found
+in the Sheet are cell fills / conditional formatting; a fill shared by several values of a column (a row or banding color) is
+ignored. Rows that have a title but no id are listed in a warning with a **Give them an id** button.

@@ -65,3 +65,13 @@ export interface Link {
   /** `one`: arrowhead at `to`; `both`: at both ends; `none`: plain line. */
   arrow: ArrowMode
 }
+
+/** A color the user picked for one value of a column (e.g. priority "A"), kept in the app because the
+ *  Sheets API cannot read the colors of dropdown chips. */
+export interface ColorRule {
+  /** Column key (lowercased header) or "status". */
+  key: string
+  /** The value, lowercased and trimmed. */
+  raw: string
+  color: string
+}
