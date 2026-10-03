@@ -1,6 +1,8 @@
 import { NOTE_SIZE } from '../constants'
-import type { Link, Task } from '../types'
+import type { ArrowMode, Link, Task } from '../types'
 import { distToSegment } from './ink'
+
+export const ARROW_MODES: ArrowMode[] = ['one', 'both', 'none']
 
 export const encodeLink = (l: Link) => JSON.stringify({ from: l.from, to: l.to, arrow: l.arrow })
 
@@ -8,8 +10,10 @@ export function decodeLink(id: string, raw: unknown): Link | null {
   if (typeof raw !== 'string') return null
   try {
     const o = JSON.parse(raw) as { from?: unknown; to?: unknown; arrow?: unknown }
+    // Older rows stored a boolean: true = arrow at the end, false = plain line.
+    const arrow: ArrowMode = o.arrow === false ? 'none' : ARROW_MODES.includes(o.arrow as ArrowMode) ? (o.arrow as ArrowMode) : 'one'
     if (typeof o.from !== 'string' || typeof o.to !== 'string' || !o.from || !o.to || o.from === o.to) return null
-    return { id, from: o.from, to: o.to, arrow: o.arrow !== false }
+    return { id, from: o.from, to: o.to, arrow }
   } catch {
     return null
   }

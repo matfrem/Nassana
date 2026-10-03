@@ -133,6 +133,9 @@ export function Board({
   const ref = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const mode = useRef<Mode>('idle')
+  /** Counts the pinch gestures started so far. */
+  const epoch = useRef(0)
+  const gesture = () => ({ multi: pointers.current.size >= 2, epoch: epoch.current })
   const pinch = useRef({ dist: 1, cx: 0, cy: 0 })
   const tap = useRef({ x: 0, y: 0, moved: false, noteId: null as string | null })
   const live = useRef<{ pts: number[]; width: number; noteId: string | null } | null>(null)
@@ -161,6 +164,18 @@ export function Board({
   strokesRef.current = strokes
   const tasksRef = useRef(tasks)
   tasksRef.current = tasks
+
+  // A finger that lifts always stops counting, even if the element it was on is gone by then
+  // (otherwise the board would think two fingers are still down and refuse to drag anything).
+  useEffect(() => {
+    const drop = (e: PointerEvent) => void pointers.current.delete(e.pointerId)
+    window.addEventListener('pointerup', drop, true)
+    window.addEventListener('pointercancel', drop, true)
+    return () => {
+      window.removeEventListener('pointerup', drop, true)
+      window.removeEventListener('pointercancel', drop, true)
+    }
+  }, [])
 
   // Wheel: zoom centered on the cursor (non-passive listener so we can preventDefault).
   useEffect(() => {
@@ -253,18 +268,41 @@ export function Board({
     showLive()
   }
 
+  /**
+   * Two fingers down: whatever was in progress (a stroke, a pan, a note or zone drag) is dropped
+   * and the gesture becomes pan + zoom. `epoch` lets notes and zones notice it even if they
+   * missed the moment (see `gesture` below).
+   */
+  const startPinch = () => {
+    cancelGesture()
+    epoch.current++
+    mode.current = 'pinch'
+    const [a, b] = [...pointers.current.values()]
+    const l = local({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 })
+    pinch.current = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: l.x, cy: l.y }
+  }
+
+  /**
+   * Runs before the notes' and zones' own handlers (which stop propagation to the bubble phase),
+   * so a second finger is seen even when the first one is holding a note or a zone.
+   */
+  const onPointerDownCapture = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') return
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pointers.current.size >= 2) {
+      ref.current!.setPointerCapture(e.pointerId)
+      setPanning(true)
+      startPinch()
+    }
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     ref.current!.setPointerCapture(e.pointerId)
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     setPanning(true)
 
     if (pointers.current.size >= 2) {
-      // Second finger: whatever was in progress (a stroke, a pan) becomes a pinch/pan gesture.
-      cancelGesture()
-      mode.current = 'pinch'
-      const [a, b] = [...pointers.current.values()]
-      const l = local({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 })
-      pinch.current = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: l.x, cy: l.y }
+      if (mode.current !== 'pinch') startPinch() // e.g. a mouse plus a finger
       return
     }
 
@@ -451,6 +489,7 @@ export function Board({
         backgroundSize: `${gridSize}px ${gridSize}px`,
         backgroundPosition: `${camera.x}px ${camera.y}px`,
       }}
+      onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -477,6 +516,7 @@ export function Board({
             count={counts.get(z.id) ?? 0}
             onSelect={onZoneSelect}
             onOpen={onZoneOpen}
+            gesture={gesture}
             onDragStart={onZoneDragStart}
             onDrag={onZoneDrag}
             onDragEnd={onZoneDragEnd}
@@ -514,6 +554,7 @@ export function Board({
             onMoveEnd={onMoveEnd}
             onSelect={onSelect}
             onOpen={onNoteOpen}
+            gesture={gesture}
             onRename={onRename}
             onRenameDone={onRenameDone}
           />

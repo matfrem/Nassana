@@ -31,6 +31,8 @@ interface Props {
   /** A drawing tool is active: pills must not catch presses meant for drawing. */
   tooling: boolean
   onChip: (chip: Chip) => void
+  /** Multi-touch state from the board: while two fingers are down (or after a pinch began), a note must not move. */
+  gesture: () => { multi: boolean; epoch: number }
   /** The note's stroke picked with the move tool. */
   selectedStrokeId: string | null
 }
@@ -53,9 +55,10 @@ export function StickyNote({
   level,
   tooling,
   onChip,
+  gesture,
   selectedStrokeId,
 }: Props) {
-  const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null)
+  const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean; epoch: number } | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const cancelled = useRef(false)
   const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
@@ -71,14 +74,25 @@ export function StickyNote({
   const onPointerDown = (e: React.PointerEvent) => {
     if (!editable || e.button !== 0) return // read-only: let the event bubble up -> board pan
     e.stopPropagation()
-    if (editing) return // let the textarea handle it
+    if (editing || gesture().multi) return // let the textarea handle it / a second finger never starts a drag
     e.currentTarget.setPointerCapture(e.pointerId)
-    drag.current = { px: e.clientX, py: e.clientY, x: task.board.x, y: task.board.y, moved: false }
+    drag.current = { px: e.clientX, py: e.clientY, x: task.board.x, y: task.board.y, moved: false, epoch: gesture().epoch }
+  }
+
+  /** A second finger arrived: stop dragging (keeping what was already moved). The board takes over. */
+  const abortIfPinching = (): boolean => {
+    const d = drag.current
+    if (!d) return true
+    const g = gesture()
+    if (!g.multi && g.epoch === d.epoch) return false
+    drag.current = null
+    if (d.moved) onMoveEnd(task.id)
+    return true
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
-    if (!d) return
+    if (!d || abortIfPinching()) return
     const dx = e.clientX - d.px
     const dy = e.clientY - d.py
     if (!d.moved && Math.hypot(dx, dy) < TAP_SLOP) return
@@ -88,7 +102,7 @@ export function StickyNote({
 
   const end = (e: React.PointerEvent) => {
     const d = drag.current
-    if (!d) return
+    if (!d || abortIfPinching()) return
     drag.current = null
     if (d.moved) onMoveEnd(task.id)
     else if (e.type === 'pointerup') {

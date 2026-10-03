@@ -36,7 +36,10 @@ export const LinksLayer = memo(function LinksLayer({
         <g key={link.id} className={`link${dim ? ' dim' : ''}`}>
           {link.id === selectedId && <line className="link-halo" x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />}
           <line className="link-line" x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
-          {link.arrow && <polygon className="link-arrow" points={arrowHead(seg, head)} />}
+          {link.arrow !== 'none' && <polygon className="link-arrow" points={arrowHead(seg, head)} />}
+          {link.arrow === 'both' && (
+            <polygon className="link-arrow" points={arrowHead({ x1: seg.x2, y1: seg.y2, x2: seg.x1, y2: seg.y1 }, head)} />
+          )}
         </g>
       ))}
       {live?.seg && (

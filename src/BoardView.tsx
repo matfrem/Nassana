@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Board, type StrokeRef, type Tool } from './board/Board'
 import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
-import { encodeLink } from './board/links'
+import { ARROW_MODES, encodeLink } from './board/links'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
@@ -597,7 +597,7 @@ export function BoardView({ source }: { source: Source }) {
   /** Drag from one note to another: a new link, with an arrow pointing at the second note. */
   const onLinkCreate = (from: string, to: string) => {
     if (linksRef.current.some((l) => l.from === from && l.to === to)) return // already linked that way
-    const link: Link = { id: crypto.randomUUID().slice(0, 8), from, to, arrow: true }
+    const link: Link = { id: crypto.randomUUID().slice(0, 8), from, to, arrow: 'one' }
     setLinks((ls) => [...ls, link])
     setSelectedLinkId(link.id)
     if (!sheetId) return
@@ -633,7 +633,8 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const toggleLinkArrow = (id: string) => {
-    setLinks((ls) => ls.map((l) => (l.id === id ? { ...l, arrow: !l.arrow } : l)))
+    // Cycle: arrow at the end -> arrows at both ends -> plain line.
+    setLinks((ls) => ls.map((l) => (l.id === id ? { ...l, arrow: ARROW_MODES[(ARROW_MODES.indexOf(l.arrow) + 1) % ARROW_MODES.length] } : l)))
     if (!sheetId) return
     dirtyLinks.current.add(id)
     clearTimeout(timer.current)
@@ -1156,7 +1157,7 @@ export function BoardView({ source }: { source: Source }) {
       {editable && tool === 'none' && selectedLinkId && (
         <div className="selection-bar">
           <button onClick={() => toggleLinkArrow(selectedLinkId)}>
-            {links.find((l) => l.id === selectedLinkId)?.arrow ? '→ Arrow: on' : '— Arrow: off'}
+            {{ one: '→ Arrow', both: '↔ Both ways', none: '— No arrow' }[links.find((l) => l.id === selectedLinkId)?.arrow ?? 'one']}
           </button>
           <button className="danger" onClick={() => removeLinks([selectedLinkId])}>
             🗑 Delete link

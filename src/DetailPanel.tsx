@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { DateField } from './DateField'
 import { isoOf, type Field } from './fields'
-import type { Task } from './types'
+import type { ArrowMode, Task } from './types'
 
 /** A link seen from the note whose panel is open. */
 export interface LinkRow {
@@ -10,7 +10,7 @@ export interface LinkRow {
   title: string
   /** `out`: this note points at the other one; `in`: the other points at this one. */
   dir: 'out' | 'in'
-  arrow: boolean
+  arrow: ArrowMode
 }
 
 interface Props {
@@ -97,7 +97,7 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
             <ul>
               {links.map((l) => (
                 <li key={l.id}>
-                  <span aria-hidden>{!l.arrow ? '—' : l.dir === 'out' ? '→' : '←'}</span>
+                  <span aria-hidden>{l.arrow === 'none' ? '—' : l.arrow === 'both' ? '↔' : l.dir === 'out' ? '→' : '←'}</span>
                   <em>{l.title || 'Untitled'}</em>
                   {editable && (
                     <button onClick={() => onRemoveLink(l.id)} aria-label={`Remove link to ${l.title}`}>

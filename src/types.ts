@@ -54,11 +54,14 @@ export interface Zone {
   limit?: number
 }
 
+export type ArrowMode = 'one' | 'both' | 'none'
+
 /** A dotted line between two notes. */
 export interface Link {
   id: string
   /** Task ids. The arrow, if any, points at `to`. */
   from: string
   to: string
-  arrow: boolean
+  /** `one`: arrowhead at `to`; `both`: at both ends; `none`: plain line. */
+  arrow: ArrowMode
 }

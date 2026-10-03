@@ -17,6 +17,8 @@ interface Props {
   onSelect: (id: string) => void
   /** Double tap/click on the title strip: open the zone's details. */
   onOpen: (id: string) => void
+  /** Multi-touch state from the board: while two fingers are down (or after a pinch began), nothing may move. */
+  gesture: () => { multi: boolean; epoch: number }
   onDragStart: (id: string) => void
   onDrag: (id: string, x: number, y: number) => void
   onDragEnd: (id: string) => void
@@ -26,7 +28,7 @@ interface Props {
   onRenameDone: () => void
 }
 
-type Gesture = { px: number; py: number; a: number; b: number; moved: boolean }
+type Gesture = { px: number; py: number; a: number; b: number; moved: boolean; epoch: number }
 
 export function ZoneView({
   zone,
@@ -38,6 +40,7 @@ export function ZoneView({
   count,
   onSelect,
   onOpen,
+  gesture,
   onDragStart,
   onDrag,
   onDragEnd,
@@ -64,13 +67,26 @@ export function ZoneView({
   const headerDown = (e: React.PointerEvent) => {
     if (!editable || e.button !== 0 || editing) return // read-only: bubble up -> board pan
     e.stopPropagation()
+    if (gesture().multi) return // a second finger never starts a drag
     e.currentTarget.setPointerCapture(e.pointerId)
-    move.current = { px: e.clientX, py: e.clientY, a: zone.x, b: zone.y, moved: false }
+    move.current = { px: e.clientX, py: e.clientY, a: zone.x, b: zone.y, moved: false, epoch: gesture().epoch }
     onDragStart(zone.id)
   }
+  /** A second finger arrived: stop dragging this gesture (keeping what was already moved). */
+  const stale = (g: Gesture, end: () => void): boolean => {
+    const now = gesture()
+    if (!now.multi && now.epoch === g.epoch) return false
+    if (g.moved) end()
+    return true
+  }
+
   const headerMove = (e: React.PointerEvent) => {
     const g = move.current
     if (!g) return
+    if (stale(g, () => onDragEnd(zone.id))) {
+      move.current = null
+      return
+    }
     const dx = e.clientX - g.px
     const dy = e.clientY - g.py
     if (!g.moved && Math.hypot(dx, dy) < TAP_SLOP) return
@@ -81,6 +97,7 @@ export function ZoneView({
     const g = move.current
     if (!g) return
     move.current = null
+    if (stale(g, () => onDragEnd(zone.id))) return
     if (g.moved) onDragEnd(zone.id)
     else if (e.type === 'pointerup') {
       const prev = lastTap.current
@@ -98,12 +115,17 @@ export function ZoneView({
   const handleDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     e.stopPropagation()
+    if (gesture().multi) return
     e.currentTarget.setPointerCapture(e.pointerId)
-    size.current = { px: e.clientX, py: e.clientY, a: zone.w, b: zone.h, moved: false }
+    size.current = { px: e.clientX, py: e.clientY, a: zone.w, b: zone.h, moved: false, epoch: gesture().epoch }
   }
   const handleMove = (e: React.PointerEvent) => {
     const g = size.current
     if (!g) return
+    if (stale(g, () => onResizeEnd(zone.id))) {
+      size.current = null
+      return
+    }
     g.moved = true
     onResize(
       zone.id,
@@ -114,7 +136,7 @@ export function ZoneView({
   const handleEnd = () => {
     const g = size.current
     size.current = null
-    if (g?.moved) onResizeEnd(zone.id)
+    if (g && !stale(g, () => onResizeEnd(zone.id)) && g.moved) onResizeEnd(zone.id)
   }
 
   const commit = (value: string) => {
