@@ -7,3 +7,8 @@ export const NOTE_COLORS = ['#FFE066', '#FFADAD', '#9BF6FF', '#CAFFBF', '#FFC6FF
 export const INK_COLORS = ['#E5484D', '#3B82F6', '#30A46C', '#F5C518', '#111111', '#FFFFFF']
 /** Pen widths in screen pixels. */
 export const PEN_WIDTHS = { thin: 3, thick: 8 } as const
+
+export const ZONE_COLORS = ['#94A3B8', '#60A5FA', '#34D399', '#FBBF24', '#F87171', '#C084FC']
+/** Height of a zone's title strip (the part you grab to move it), in world units. */
+export const ZONE_HEADER = 48
+export const ZONE_MIN_SIZE = 140

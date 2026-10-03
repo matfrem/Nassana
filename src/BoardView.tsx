@@ -1,26 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Board, type Tool } from './board/Board'
 import { encodeNoteDrawing, simplify } from './board/ink'
-import { fitCamera, screenToWorld, zoomAt } from './board/camera'
-import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS } from './constants'
+import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
+import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
+import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
 import { demoTasks } from './data'
 import { AuthRequiredError, signIn } from './google/auth'
 import { pickSheet } from './google/picker'
 import {
+  appendBoardRow,
   appendTask,
   appendStroke,
   applySetupFix,
-  deleteStrokes,
+  deleteBoardRows,
   deleteTask,
-  fetchDrawing,
+  fetchBoardData,
   fetchSheet,
   saveTasks,
   SheetError,
   type SetupFix,
   type TaskPatch,
+  updateBoardRows,
 } from './google/sheets'
 import { rememberSheet } from './recent'
-import type { Camera, Stroke, Task } from './types'
+import type { Camera, Stroke, Task, Zone } from './types'
 
 export type Source = { kind: 'demo' } | { kind: 'sheet'; id: string }
 
@@ -65,6 +68,17 @@ export function BoardView({ source }: { source: Source }) {
   const [status, setStatus] = useState<Status>({ kind: isDemo ? 'ready' : 'loading' })
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
   const [editable, setEditable] = useState(false)
+  const [zones, setZones] = useState<Zone[]>([])
+  const zonesRef = useRef(zones)
+  zonesRef.current = zones
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
+  const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
+  /** Zones whose geometry/name/color still has to be written to the Sheet. */
+  const dirtyZones = useRef(new Set<string>())
+  /** While a zone is dragged: where it started and the notes it carries along. */
+  const zoneDrag = useRef<{ x: number; y: number; notes: { id: string; x: number; y: number }[] } | null>(null)
+  /** The note being dragged right now, to light up the zone it is over. */
+  const [draggingId, setDraggingId] = useState<string | null>(null)
   const [strokes, setStrokes] = useState<Stroke[]>([])
   const [tool, setTool] = useState<Tool>('none')
   const [penColor, setPenColor] = useState(INK_COLORS[0])
@@ -86,7 +100,7 @@ export function BoardView({ source }: { source: Source }) {
   const tasksRef = useRef(tasks)
   tasksRef.current = tasks
   /** Which cells of which tasks still have to be written to the Sheet. */
-  const dirty = useRef(new Map<string, { title?: boolean; board?: boolean; drawing?: boolean }>())
+  const dirty = useRef(new Map<string, { title?: boolean; board?: boolean; drawing?: boolean; status?: boolean }>())
   const timer = useRef<ReturnType<typeof setTimeout>>()
   const saving = useRef<Promise<void>>(Promise.resolve())
 
@@ -95,22 +109,25 @@ export function BoardView({ source }: { source: Source }) {
       if (!sheetId) return
       if (!background) setStatus({ kind: 'loading' })
       try {
-        const [data, drawing] = await Promise.all([
+        const [data, board] = await Promise.all([
           fetchSheet(sheetId),
-          fetchDrawing(sheetId).catch(() => null), // a drawing problem must not hide the notes
+          fetchBoardData(sheetId).catch(() => null), // a drawing/zone problem must not hide the notes
         ])
-        setTasks(data.tasks)
+        // The Sheet is the source of truth for statuses: put notes in the zone their status names.
+        const tasks = applyZones(data.tasks, board ? board.zones : zonesRef.current)
+        setTasks(tasks)
         setTitle(data.title)
-        if (drawing) setStrokes(drawing)
-        setWarnings(drawing ? data.warnings : [...data.warnings, 'Could not load the drawing.'])
+        if (board) {
+          setStrokes(board.strokes)
+          setZones(board.zones)
+        }
+        setWarnings(board ? data.warnings : [...data.warnings, 'Could not load the drawing and zones.'])
         setUpdatedAt(new Date())
         setStatus({ kind: 'ready' })
         rememberSheet({ id: sheetId, title: data.title })
         if (!fitted.current) {
           fitted.current = true
-          setCamera(
-            fitCamera(data.tasks.map((t) => t.board), NOTE_SIZE, window.innerWidth, window.innerHeight),
-          )
+          setCamera(fitCamera(tasks.map((t) => t.board), NOTE_SIZE, window.innerWidth, window.innerHeight))
         }
       } catch (e) {
         if (background) return // keep showing what we have; the next poll will retry
@@ -173,6 +190,7 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const onMove = useCallback((id: string, x: number, y: number) => {
+    setDraggingId(id)
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, board: { ...t.board, x, y } } : t)))
   }, [])
 
@@ -202,25 +220,33 @@ export function BoardView({ source }: { source: Source }) {
           title: d?.title ? t.title : undefined,
           board: d?.board || t.autoPlaced ? t.board : undefined,
           drawing: d?.drawing ? (t.drawing ?? []) : undefined,
+          status: d?.status ? (t.status ?? '') : undefined,
         })
       }
       dirty.current.clear()
-      if (patches.length === 0) return
+      const zoneIds = new Set(dirtyZones.current)
+      dirtyZones.current.clear()
+      if (patches.length === 0 && zoneIds.size === 0) return
       setSave({ kind: 'saving' })
       try {
         await saveTasks(sheetId, patches)
+        await updateBoardRows(
+          sheetId,
+          zonesRef.current.filter((z) => zoneIds.has(z.id)).map((z) => ({ id: z.id, data: encodeZone(z) })),
+        )
         const saved = new Set(patches.map((p) => p.id))
         setTasks((ts) => ts.map((t) => (saved.has(t.id) ? { ...t, autoPlaced: false } : t)))
         setSave({ kind: 'saved' })
       } catch (e) {
         for (const [id, d] of pending) dirty.current.set(id, { ...dirty.current.get(id), ...d }) // retry later
+        zoneIds.forEach((id) => dirtyZones.current.add(id))
         fail(e)
       }
     })
   }, [sheetId, enqueue])
 
   const markDirty = useCallback(
-    (id: string, field: 'title' | 'board' | 'drawing') => {
+    (id: string, field: 'title' | 'board' | 'drawing' | 'status') => {
       if (!sheetId) return
       dirty.current.set(id, { ...dirty.current.get(id), [field]: true })
       clearTimeout(timer.current)
@@ -229,7 +255,166 @@ export function BoardView({ source }: { source: Source }) {
     [sheetId, flush],
   )
 
-  const onMoveEnd = useCallback((id: string) => markDirty(id, 'board'), [markDirty])
+  const markZoneDirty = useCallback(
+    (id: string) => {
+      if (!sheetId) return
+      dirtyZones.current.add(id)
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
+    },
+    [sheetId, flush],
+  )
+
+  /** Dropping a note in a zone gives it that zone's status. Outside every zone, the status is kept. */
+  const onMoveEnd = useCallback(
+    (id: string) => {
+      setDraggingId(null)
+      markDirty(id, 'board')
+      const task = tasksRef.current.find((t) => t.id === id)
+      if (!task) return
+      const c = centerOf(task)
+      const zone = zoneAt(zonesRef.current, c.x, c.y)
+      if (zone && task.status !== zone.name) {
+        setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, status: zone.name } : t)))
+        markDirty(id, 'status')
+      }
+    },
+    [markDirty],
+  )
+
+  /** Every note inside the zone takes its name as status (after a rename, resize or new zone). */
+  const syncStatuses = (zone: Zone, all: Zone[]) => {
+    const inZone = notesInZone(all, zone, tasksRef.current).filter((t) => t.status !== zone.name)
+    if (inZone.length === 0) return
+    const ids = new Set(inZone.map((t) => t.id))
+    setTasks((ts) => ts.map((t) => (ids.has(t.id) ? { ...t, status: zone.name } : t)))
+    ids.forEach((id) => markDirty(id, 'status'))
+  }
+
+  const patchZone = (id: string, patch: Partial<Zone>) =>
+    setZones((zs) => zs.map((z) => (z.id === id ? { ...z, ...patch } : z)))
+
+  const onZoneDragStart = (id: string) => {
+    const z = zonesRef.current.find((zz) => zz.id === id)
+    if (!z) return
+    const carried = notesInZone(zonesRef.current, z, tasksRef.current)
+    zoneDrag.current = { x: z.x, y: z.y, notes: carried.map((t) => ({ id: t.id, x: t.board.x, y: t.board.y })) }
+  }
+
+  const onZoneDrag = (id: string, x: number, y: number) => {
+    const d = zoneDrag.current
+    if (!d) return
+    const dx = x - d.x
+    const dy = y - d.y
+    patchZone(id, { x, y })
+    const carried = new Map(d.notes.map((n) => [n.id, n]))
+    // The notes inside move with the zone.
+    setTasks((ts) =>
+      ts.map((t) => {
+        const n = carried.get(t.id)
+        return n ? { ...t, board: { ...t.board, x: n.x + dx, y: n.y + dy } } : t
+      }),
+    )
+  }
+
+  const onZoneDragEnd = (id: string) => {
+    const d = zoneDrag.current
+    zoneDrag.current = null
+    markZoneDirty(id)
+    d?.notes.forEach((n) => markDirty(n.id, 'board'))
+  }
+
+  const onZoneResizeEnd = (id: string) => {
+    markZoneDirty(id)
+    const z = zonesRef.current.find((zz) => zz.id === id)
+    if (z) syncStatuses(z, zonesRef.current)
+  }
+
+  const onZoneRename = (id: string, name: string) => {
+    const z = zonesRef.current.find((zz) => zz.id === id)
+    if (!z || z.name === name) return
+    const renamed = { ...z, name }
+    const all = zonesRef.current.map((zz) => (zz.id === id ? renamed : zz))
+    setZones(all)
+    markZoneDirty(id)
+    syncStatuses(renamed, all)
+  }
+
+  const onZoneColor = (color: string) => {
+    if (!selectedZoneId) return
+    patchZone(selectedZoneId, { color })
+    markZoneDirty(selectedZoneId)
+  }
+
+  const createZones = (rects: { x: number; y: number; w: number; h: number; name: string; color: string }[]) => {
+    const created: Zone[] = rects.map((r) => ({ id: crypto.randomUUID().slice(0, 8), ...r }))
+    const all = [...zonesRef.current, ...created]
+    setZones(all)
+    created.forEach((z) => syncStatuses(z, all))
+    if (!sheetId) return created
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        for (const z of created) await appendBoardRow(sheetId, z.id, 'zone', encodeZone(z))
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        const gone = new Set(created.map((z) => z.id))
+        setZones((zs) => zs.filter((z) => !gone.has(z.id)))
+        fail(e)
+      }
+    })
+    return created
+  }
+
+  const onZoneDraw = (rect: { x: number; y: number; w: number; h: number }) => {
+    const [z] = createZones([{ ...rect, name: 'New zone', color: ZONE_COLORS[1] }])
+    setTool('none')
+    setSelectedId(null)
+    setSelectedZoneId(z.id)
+    setEditingZoneId(z.id)
+  }
+
+  /** Backlog / In progress / Done, side by side, centered in the current view. */
+  const addScrumZones = () => {
+    const w = 440
+    const h = 640
+    const gap = 24
+    const c = screenToWorld(camera, window.innerWidth / 2, window.innerHeight / 2)
+    const x0 = Math.round(c.x - (3 * w + 2 * gap) / 2)
+    const y0 = Math.round(c.y - h / 2)
+    createZones(
+      ['Backlog', 'In progress', 'Done'].map((name, i) => ({
+        x: x0 + i * (w + gap),
+        y: y0,
+        w,
+        h,
+        name,
+        color: ZONE_COLORS[[0, 1, 2][i]],
+      })),
+    )
+    setCamera(fitRect(x0, y0, x0 + 3 * w + 2 * gap, y0 + h, window.innerWidth, window.innerHeight))
+    setTool('none')
+  }
+
+  const deleteSelectedZone = () => {
+    const zone = zones.find((z) => z.id === selectedZoneId)
+    if (!zone) return
+    if (!window.confirm(`Delete the zone "${zone.name}"? Its notes stay where they are.`)) return
+    setZones((zs) => zs.filter((z) => z.id !== zone.id))
+    setSelectedZoneId(null)
+    dirtyZones.current.delete(zone.id)
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await deleteBoardRows(sheetId, [zone.id])
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        fail(e)
+        void load(true)
+      }
+    })
+  }
 
   const onRename = useCallback(
     (id: string, newTitle: string) => {
@@ -350,7 +535,7 @@ export function BoardView({ source }: { source: Source }) {
     setSave({ kind: 'saving' })
     void enqueue(async () => {
       try {
-        await deleteStrokes(sheetId, ids)
+        await deleteBoardRows(sheetId, ids)
         setSave({ kind: 'saved' })
       } catch (e) {
         fail(e)
@@ -386,6 +571,8 @@ export function BoardView({ source }: { source: Source }) {
     if (editable) {
       setEditingId(null)
       setSelectedId(null)
+      setSelectedZoneId(null)
+      setEditingZoneId(null)
       setTool('none')
       await flush() // do not leave edit mode (which resumes polling) with unsaved changes
       setEditable(false)
@@ -421,9 +608,31 @@ export function BoardView({ source }: { source: Source }) {
         onMoveEnd={onMoveEnd}
         selectedId={editable ? selectedId : null}
         editingId={editingId}
-        onSelect={setSelectedId}
+        onSelect={(id) => {
+          setSelectedId(id)
+          setSelectedZoneId(null)
+        }}
         onRename={onRename}
         onRenameDone={() => setEditingId(null)}
+        zones={zones}
+        selectedZoneId={editable && tool === 'none' ? selectedZoneId : null}
+        editingZoneId={editingZoneId}
+        highlightZoneId={(() => {
+          const t = draggingId ? tasks.find((n) => n.id === draggingId) : undefined
+          return t ? (zoneAt(zones, centerOf(t).x, centerOf(t).y)?.id ?? null) : null
+        })()}
+        onZoneSelect={(id) => {
+          setSelectedZoneId(id)
+          setSelectedId(null)
+        }}
+        onZoneDragStart={onZoneDragStart}
+        onZoneDrag={onZoneDrag}
+        onZoneDragEnd={onZoneDragEnd}
+        onZoneResize={(id, w, h) => patchZone(id, { w, h })}
+        onZoneResizeEnd={onZoneResizeEnd}
+        onZoneRename={onZoneRename}
+        onZoneRenameDone={() => setEditingZoneId(null)}
+        onZoneDraw={onZoneDraw}
         strokes={strokes}
         tool={editable ? tool : 'none'}
         penColor={penColor}
@@ -457,15 +666,30 @@ export function BoardView({ source }: { source: Source }) {
         )}
         {editable && (
           <button
-            className={tool !== 'none' ? 'primary' : ''}
+            className={tool === 'pen' || tool === 'eraser' ? 'primary' : ''}
             aria-label="Draw"
             onClick={() => {
               setSelectedId(null)
+              setSelectedZoneId(null)
               setEditingId(null)
-              setTool((t) => (t === 'none' ? 'pen' : 'none'))
+              setTool((t) => (t === 'pen' || t === 'eraser' ? 'none' : 'pen'))
             }}
           >
             ✏<span className="label"> Draw</span>
+          </button>
+        )}
+        {editable && (
+          <button
+            className={tool === 'zone' ? 'primary' : ''}
+            aria-label="Zone"
+            onClick={() => {
+              setSelectedId(null)
+              setSelectedZoneId(null)
+              setEditingId(null)
+              setTool((t) => (t === 'zone' ? 'none' : 'zone'))
+            }}
+          >
+            ▭<span className="label"> Zone</span>
           </button>
         )}
         {sheetId && (
@@ -502,7 +726,7 @@ export function BoardView({ source }: { source: Source }) {
         </div>
       )}
 
-      {editable && tool !== 'none' && (
+      {editable && (tool === 'pen' || tool === 'eraser') && (
         <div className="selection-bar draw-bar">
           <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} aria-label="Pen">
             ✏
@@ -547,6 +771,33 @@ export function BoardView({ source }: { source: Source }) {
           <span className="sep" />
           <button aria-label="Undo" onClick={undoStroke}>
             ↶
+          </button>
+        </div>
+      )}
+
+      {editable && tool === 'zone' && (
+        <div className="selection-bar zone-bar">
+          <span>Drag on the board to draw a zone</span>
+          {zones.length === 0 && <button onClick={addScrumZones}>Add Backlog / In progress / Done</button>}
+          <button onClick={() => setTool('none')}>Cancel</button>
+        </div>
+      )}
+
+      {editable && tool === 'none' && selectedZoneId && !editingZoneId && (
+        <div className="selection-bar">
+          {ZONE_COLORS.map((c) => (
+            <button
+              key={c}
+              className="swatch"
+              style={{ background: c }}
+              aria-label={`Zone color ${c}`}
+              onClick={() => onZoneColor(c)}
+            />
+          ))}
+          <span className="sep" />
+          <button onClick={() => setEditingZoneId(selectedZoneId)}>✎ Rename</button>
+          <button className="danger" onClick={deleteSelectedZone}>
+            🗑 Delete
           </button>
         </div>
       )}

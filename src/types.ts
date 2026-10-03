@@ -13,6 +13,8 @@ export interface Task {
   autoPlaced?: boolean
   /** Strokes drawn on the note, in note coordinates (0..NOTE_SIZE). */
   drawing?: Stroke[]
+  /** Free text; equals the name of the zone the note sits in, if any. */
+  status?: string
 }
 
 export interface Camera {
@@ -31,4 +33,16 @@ export interface Stroke {
   w: number
   /** Flat list of points: x0, y0, x1, y1, ... */
   p: number[]
+}
+
+/** A rectangle on the board. Dropping a note in it sets the note's status to the zone's name. */
+export interface Zone {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  /** Doubles as the status value. */
+  name: string
+  color: string
 }

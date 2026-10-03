@@ -24,6 +24,7 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Add note, color, rename, delete (Edit mode: tap a note to select it)
 - [x] Drawing on the board (pen, eraser, undo; strokes stored one per row in the `_board` tab)
 - [x] Drawing on notes (a stroke started on a note belongs to it; stored in the `drawing` column)
+- [x] Zones = scrum board: a note dropped in a zone takes the zone's name as its `status`
 - [x] Two-finger pan + zoom on touch screens
 
 ## Sheet format
@@ -58,3 +59,13 @@ A Sheets cell holds 50 000 characters at most, so strokes are simplified until t
 
 Strokes drawn **on a note** are stored in the note's own `drawing` column (created on first use):
 a JSON array of `{"c","w","p"}` in note coordinates, so they follow the note and are clipped to it.
+
+## Zones (scrum board)
+
+A zone is a rectangle with a name; its name is the status. Zones are rows of type `zone` in the `_board` tab:
+`{"x","y","w","h","name","color"}`. Notes get a `status` column (created on first use).
+
+- Dropping a note in a zone sets the note's `status` to the zone's name. Dropping it outside every zone keeps its status.
+- The Sheet is the source of truth: on load, a note with no saved position goes into the zone named like its status,
+  and a note sitting in a zone whose status names a *different* zone moves there. Notes outside every zone stay put.
+- Moving a zone carries the notes inside it. Renaming or resizing a zone gives its name as status to the notes inside.

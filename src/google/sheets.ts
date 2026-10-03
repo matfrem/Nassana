@@ -1,7 +1,8 @@
 import { NOTE_COLORS, NOTE_SIZE, NOTE_STEP } from '../constants'
 import { DRAWING_TAB, REQUIRED_COLUMNS, TASKS_TAB } from '../config'
 import { decodeNoteDrawing, decodeStroke, encodeNoteDrawing, encodeStroke } from '../board/ink'
-import type { BoardInfo, Stroke, Task } from '../types'
+import { decodeZone } from '../board/zones'
+import type { BoardInfo, Stroke, Task, Zone } from '../types'
 import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -126,7 +127,7 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
       columns: HEADER.filter((c) => col(c) < 0),
     })
   }
-  const [iId, iTitle, iBoard, iDrawing] = [col('id'), col('title'), col('board'), col('drawing')]
+  const [iId, iTitle, iBoard, iDrawing, iStatus] = [col('id'), col('title'), col('board'), col('drawing'), col('status')]
 
   const warnings: string[] = []
   const seen = new Set<string>()
@@ -148,6 +149,7 @@ export function parseTasks(rows: unknown[][]): { tasks: Task[]; warnings: string
       board: { x: b.x ?? NaN, y: b.y ?? NaN, color: b.color ?? NOTE_COLORS[n % NOTE_COLORS.length] },
       autoPlaced: b.x === undefined,
       drawing: iDrawing >= 0 ? decodeNoteDrawing(id, row[iDrawing]) : [],
+      status: iStatus >= 0 ? String(row[iStatus] ?? '').trim() || undefined : undefined,
     })
   })
 
@@ -252,6 +254,8 @@ export interface TaskPatch {
   title?: string
   board?: BoardInfo
   drawing?: Stroke[]
+  /** An empty string clears the status. */
+  status?: string
 }
 
 /**
@@ -285,6 +289,9 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
       data.push({ range: `${TASKS_TAB}!${columnLetter(t.iTitle)}${row}`, values: [[p.title]] })
     }
     if (p.board) data.push({ range: `${TASKS_TAB}!${columnLetter(column('board'))}${row}`, values: [[boardJson(p.board)]] })
+    if (p.status !== undefined) {
+      data.push({ range: `${TASKS_TAB}!${columnLetter(column('status'))}${row}`, values: [[p.status]] })
+    }
     if (p.drawing) {
       data.push({
         range: `${TASKS_TAB}!${columnLetter(column('drawing'))}${row}`,
@@ -346,33 +353,44 @@ export async function deleteTask(sheetId: string, taskId: string): Promise<void>
 }
 
 // ---------------------------------------------------------------------------------
-// Drawing: one row per stroke in the `_board` tab: id | type | data
+// The `_board` tab: strokes and zones, one row each: id | type | data
 // ---------------------------------------------------------------------------------
 
-const DRAWING_HEADER = ['id', 'type', 'data']
+const BOARD_HEADER = ['id', 'type', 'data']
 
 const isMissingTab = (e: unknown) => e instanceof SheetError && e.fix?.kind === 'no-tab'
 
-/** Reads all strokes. A Sheet without the `_board` tab simply has no drawing. */
-export async function fetchDrawing(sheetId: string): Promise<Stroke[]> {
+export interface BoardData {
+  strokes: Stroke[]
+  zones: Zone[]
+}
+
+/** Reads strokes and zones. A Sheet without the `_board` tab simply has neither. */
+export async function fetchBoardData(sheetId: string): Promise<BoardData> {
   try {
     const res = (await api(
       `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
     )) as { values?: unknown[][] }
-    const strokes: Stroke[] = []
+    const out: BoardData = { strokes: [], zones: [] }
     for (const r of (res.values ?? []).slice(1)) {
-      if (String(r[1] ?? '') !== 'stroke') continue
-      const s = decodeStroke(String(r[0] ?? ''), r[2])
-      if (s) strokes.push(s)
+      const id = String(r[0] ?? '')
+      const type = String(r[1] ?? '')
+      if (type === 'stroke') {
+        const s = decodeStroke(id, r[2])
+        if (s) out.strokes.push(s)
+      } else if (type === 'zone') {
+        const z = decodeZone(id, r[2])
+        if (z) out.zones.push(z)
+      }
     }
-    return strokes
+    return out
   } catch (e) {
-    if (isMissingTab(e)) return []
+    if (isMissingTab(e)) return { strokes: [], zones: [] }
     throw e
   }
 }
 
-async function createDrawingTab(sheetId: string): Promise<void> {
+async function createBoardTab(sheetId: string): Promise<void> {
   const id = encodeURIComponent(sheetId)
   const meta = (await api(`${API}/${id}?fields=sheets.properties.title`)) as {
     sheets?: { properties: { title: string } }[]
@@ -385,25 +403,51 @@ async function createDrawingTab(sheetId: string): Promise<void> {
   }
   await api(`${API}/${id}/values/${encodeURIComponent(`${DRAWING_TAB}!A1:C1`)}?valueInputOption=RAW`, {
     method: 'PUT',
-    body: { values: [DRAWING_HEADER] },
+    body: { values: [BOARD_HEADER] },
   })
 }
 
-/** Appends a stroke, creating the `_board` tab first if this is the Sheet's first one. */
-export async function appendStroke(sheetId: string, stroke: Stroke, eps: number): Promise<void> {
-  const row = [stroke.id, 'stroke', encodeStroke(stroke, eps)]
+/** Appends a row, creating the `_board` tab first if this is the Sheet's first one. */
+export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone', data: string): Promise<void> {
   const url = `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${DRAWING_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
+  const body = { values: [[rowId, type, data]] }
   try {
-    await api(url, { method: 'POST', body: { values: [row] } })
+    await api(url, { method: 'POST', body })
   } catch (e) {
     if (!isMissingTab(e)) throw e
-    await createDrawingTab(sheetId)
-    await api(url, { method: 'POST', body: { values: [row] } })
+    await createBoardTab(sheetId)
+    await api(url, { method: 'POST', body })
   }
 }
 
-/** Deletes the rows of the given strokes (found by id). Strokes already gone are ignored. */
-export async function deleteStrokes(sheetId: string, ids: string[]): Promise<void> {
+export const appendStroke = (sheetId: string, stroke: Stroke, eps: number) =>
+  appendBoardRow(sheetId, stroke.id, 'stroke', encodeStroke(stroke, eps))
+
+/** Rewrites the data cell of existing rows (found by id). Rows that are gone are ignored. */
+export async function updateBoardRows(sheetId: string, items: { id: string; data: string }[]): Promise<void> {
+  if (items.length === 0) return
+  const id = encodeURIComponent(sheetId)
+  let res: { values?: unknown[][] }
+  try {
+    res = (await api(`${API}/${id}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`)) as typeof res
+  } catch (e) {
+    if (isMissingTab(e)) return
+    throw e
+  }
+  const rowOf = new Map<string, number>()
+  ;(res.values ?? []).forEach((r, i) => {
+    if (i > 0) rowOf.set(String(r[0] ?? ''), i + 1)
+  })
+  const data = items.flatMap((it) => {
+    const row = rowOf.get(it.id)
+    return row ? [{ range: `${DRAWING_TAB}!C${row}`, values: [[it.data]] }] : []
+  })
+  if (data.length === 0) return
+  await api(`${API}/${id}/values:batchUpdate`, { method: 'POST', body: { valueInputOption: 'RAW', data } })
+}
+
+/** Deletes the rows with the given ids (strokes or zones). Rows already gone are ignored. */
+export async function deleteBoardRows(sheetId: string, ids: string[]): Promise<void> {
   if (ids.length === 0) return
   const id = encodeURIComponent(sheetId)
   let res: { values?: unknown[][] }

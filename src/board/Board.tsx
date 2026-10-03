@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { NOTE_SIZE } from '../constants'
-import type { Camera, Stroke, Task } from '../types'
+import type { Camera, Stroke, Task, Zone } from '../types'
 import { clampZoom, screenToWorld, zoomAt } from './camera'
 import { hitsStroke } from './ink'
 import { Ink, type Clip } from './Ink'
 import { StickyNote } from './StickyNote'
+import { ZoneView } from './ZoneView'
 
-export type Tool = 'none' | 'pen' | 'eraser'
+export type Tool = 'none' | 'pen' | 'eraser' | 'zone'
 
 interface Props {
   tasks: Task[]
@@ -18,6 +19,21 @@ interface Props {
   onSelect: (id: string | null) => void
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
+  zones: Zone[]
+  selectedZoneId: string | null
+  editingZoneId: string | null
+  /** The zone a dragged note is currently over. */
+  highlightZoneId: string | null
+  onZoneSelect: (id: string) => void
+  onZoneDragStart: (id: string) => void
+  onZoneDrag: (id: string, x: number, y: number) => void
+  onZoneDragEnd: (id: string) => void
+  onZoneResize: (id: string, w: number, h: number) => void
+  onZoneResizeEnd: (id: string) => void
+  onZoneRename: (id: string, name: string) => void
+  onZoneRenameDone: () => void
+  /** Called when the user finishes dragging out a new zone (world coordinates). */
+  onZoneDraw: (rect: { x: number; y: number; w: number; h: number }) => void
   strokes: Stroke[]
   tool: Tool
   penColor: string
@@ -39,7 +55,7 @@ const GRID = 40
 const TAP_SLOP = 4
 const ERASER_RADIUS = 12 // screen px
 
-type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch'
+type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone'
 
 export function Board({
   tasks,
@@ -51,6 +67,19 @@ export function Board({
   onSelect,
   onRename,
   onRenameDone,
+  zones,
+  selectedZoneId,
+  editingZoneId,
+  highlightZoneId,
+  onZoneSelect,
+  onZoneDragStart,
+  onZoneDrag,
+  onZoneDragEnd,
+  onZoneResize,
+  onZoneResizeEnd,
+  onZoneRename,
+  onZoneRenameDone,
+  onZoneDraw,
   strokes,
   tool,
   penColor,
@@ -69,6 +98,8 @@ export function Board({
   const live = useRef<{ pts: number[]; width: number; noteId: string | null } | null>(null)
   const [liveClip, setLiveClip] = useState<Clip | null>(null)
   const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
+  const zoneStart = useRef<{ x: number; y: number } | null>(null)
+  const [liveZone, setLiveZone] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [panning, setPanning] = useState(false)
 
   // The handlers below read the latest camera/strokes without being re-created on every change.
@@ -133,6 +164,8 @@ export function Board({
 
   const cancelGesture = () => {
     if (mode.current === 'erase') onEraseEnd()
+    zoneStart.current = null
+    setLiveZone(null)
     live.current = null
     showLive()
   }
@@ -167,6 +200,9 @@ export function Board({
     } else if (tool === 'eraser') {
       mode.current = 'erase'
       erase(e)
+    } else if (tool === 'zone') {
+      zoneStart.current = world(e)
+      mode.current = 'zone'
     } else mode.current = 'pan'
   }
 
@@ -203,6 +239,10 @@ export function Board({
       }
     } else if (mode.current === 'erase') {
       erase(e)
+    } else if (mode.current === 'zone' && zoneStart.current) {
+      const a = zoneStart.current
+      const w = world(e)
+      setLiveZone({ x: Math.min(a.x, w.x), y: Math.min(a.y, w.y), w: Math.abs(w.x - a.x), h: Math.abs(w.y - a.y) })
     } else if (mode.current === 'pan') {
       const dx = cur.x - prev.x
       const dy = cur.y - prev.y
@@ -219,6 +259,12 @@ export function Board({
       onStroke(live.current.pts, live.current.width, live.current.noteId)
     } else if (mode.current === 'erase') {
       onEraseEnd()
+    } else if (mode.current === 'zone') {
+      // Ignore accidental taps: a zone must be at least ~40 screen pixels each way.
+      const min = 40 / camRef.current.zoom
+      if (finished && liveZone && liveZone.w >= min && liveZone.h >= min) onZoneDraw(liveZone)
+      zoneStart.current = null
+      setLiveZone(null)
     } else if (mode.current === 'pan' && finished && !tap.current.moved) {
       onSelect(null) // a press on the empty background deselects the current note
     }
@@ -249,6 +295,31 @@ export function Board({
         className="world"
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
+        {zones.map((z) => (
+          <ZoneView
+            key={z.id}
+            zone={z}
+            zoom={camera.zoom}
+            editable={editable && tool === 'none'}
+            selected={z.id === selectedZoneId}
+            editing={z.id === editingZoneId}
+            highlight={z.id === highlightZoneId}
+            onSelect={onZoneSelect}
+            onDragStart={onZoneDragStart}
+            onDrag={onZoneDrag}
+            onDragEnd={onZoneDragEnd}
+            onResize={onZoneResize}
+            onResizeEnd={onZoneResizeEnd}
+            onRename={onZoneRename}
+            onRenameDone={onZoneRenameDone}
+          />
+        ))}
+        {liveZone && (
+          <div
+            className="zone live"
+            style={{ transform: `translate(${liveZone.x}px, ${liveZone.y}px)`, width: liveZone.w, height: liveZone.h }}
+          />
+        )}
         {tasks.map((t) => (
           <StickyNote
             key={t.id}
