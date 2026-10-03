@@ -703,19 +703,29 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 }
 .note.editable:active { box-shadow: 0 6px 14px rgba(0, 0, 0, 0.22); } /* superseded by .lifted once the note really moves */
 .note.lifted.editable:active { box-shadow: 0 22px 36px rgba(0, 0, 0, 0.32), 0 6px 10px rgba(0, 0, 0, 0.2); }
-.note.gliding { transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease, scale 0.4s ease, rotate 0.15s ease, box-shadow 0.15s ease; }
+.note.gliding { transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.1s linear, scale 0.4s ease, rotate 0.15s ease, box-shadow 0.15s ease; }
+/* sub-tasks slide out from under their parent, and back under it */
+.note.gliding.child { z-index: -1; }
 .note.tucked {
   opacity: 0;
-  scale: 0.85;
+  scale: 0.9;
   z-index: -1;
   pointer-events: none;
   visibility: hidden;
-  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease, scale 0.4s ease, visibility 0s linear 0.4s;
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), scale 0.4s ease, opacity 0.1s linear 0.3s, visibility 0s linear 0.4s;
 }
-.note:not(.tucked).gliding { visibility: visible; }
-.note.stacked {
-  box-shadow: 7px 7px 0 -1px rgba(0, 0, 0, 0.14), 14px 14px 0 -2px rgba(0, 0, 0, 0.09), 0 6px 14px rgba(0, 0, 0, 0.22);
+.note.drop-target { outline: 3px dashed var(--accent); outline-offset: 4px; scale: 1.03; }
+.stack-cards { position: absolute; top: 0; left: 0; pointer-events: none; transition: opacity 0.25s ease; }
+.stack-cards.dim { opacity: 0.22; }
+.stack-cards.open { opacity: 0; }
+.stack-cards i {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25), inset 0 0 0 100vmax rgba(0, 0, 0, 0.07);
 }
+.stack-cards i:nth-child(1) { transform: translate(5px, 6px) rotate(3.5deg); }
+.stack-cards i:nth-child(2) { transform: translate(-4px, 9px) rotate(-3deg); }
 .stack-badge {
   position: absolute;
   right: 8px;

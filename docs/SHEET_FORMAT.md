@@ -52,7 +52,6 @@ Everything that is not a task: one row per item, header `id | type | data`, `dat
 | `stroke` | 8 hex | `{"c","w","p"}` as above, in **board coordinates**. |
 | `zone` | 8 hex | `{"x","y","w","h","name","color","limit"}`. `name` is also the status; `limit` (optional) is the work-in-progress limit; `color` is `#rrggbb`. |
 | `link` | 8 hex | `{"from":"<task id>","to":"<task id>","arrow":"one"}`; `arrow` is `one` (head at `to`), `both` or `none`. Older rows with a boolean are still read (`true` = `one`, `false` = `none`). |
-| `parent` | `parent:<child id>` | The id of the child's parent note (a stack of tasks). One row per sub-task; no row = free note. |
 | `open` | `open:<parent id>` | `1`. The stack of that note is spread open; no row = tucked away (shared by everyone). |
 | `color` | `color:<column key>\|<value>` | `{"key":"priority#","value":"a","color":"#FF8800"}`: the color picked in the legend for one value of a column; `key` is the lowercased header (or `status`), `value` is lowercased and trimmed. |
 
@@ -72,3 +71,7 @@ ignored when drawing. Unknown or malformed rows are skipped, never fatal.
 Safe: sorting, filtering, inserting or deleting task rows, adding columns, editing titles/statuses/properties, changing dropdown lists.
 Changes show up when the board refreshes. Editing `board`, `drawing` or `_board` JSON by hand works but is easy to get wrong; a malformed
 cell is ignored (the note is re-placed automatically).
+
+## The `parent` column
+
+`parent` (in `Tasks`, added automatically when needed) holds the `id` of the note a task is a sub-task of; empty = free note. Parents can have parents (a tree). Loops and unknown ids are ignored. Because it is a reserved name, an existing custom column called `parent` would be read this way.

@@ -18,6 +18,8 @@ export interface Task {
   /** Free text; equals the name of the zone the note sits in, if any. */
   status?: string
   description?: string
+  /** Id of the note this one is a sub-task of (the `parent` column). */
+  parent?: string
   /** Custom columns (anything besides id, title, description, board, drawing, status), by column key. */
   values?: Record<string, Cell>
 }

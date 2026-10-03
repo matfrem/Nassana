@@ -141,7 +141,7 @@ export function parseTasks(rows: unknown[][]): {
       columns: HEADER.filter((c) => col(c) < 0),
     })
   }
-  const [iId, iTitle, iBoard, iDrawing, iStatus, iDesc] = [col('id'), col('title'), col('board'), col('drawing'), col('status'), col('description')]
+  const [iId, iTitle, iBoard, iDrawing, iStatus, iDesc, iParent] = [col('id'), col('title'), col('board'), col('drawing'), col('status'), col('description'), col('parent')]
   const columns = columnsOf(rows[0])
 
   const warnings: string[] = []
@@ -171,6 +171,7 @@ export function parseTasks(rows: unknown[][]): {
       drawing: iDrawing >= 0 ? decodeNoteDrawing(id, row[iDrawing]) : [],
       status: iStatus >= 0 ? String(row[iStatus] ?? '').trim() || undefined : undefined,
       description: iDesc >= 0 ? String(row[iDesc] ?? '') || undefined : undefined,
+      parent: iParent >= 0 ? String(row[iParent] ?? '').trim() || undefined : undefined,
       values: Object.fromEntries(
         columns.flatMap((c) => (row[c.index] === undefined || row[c.index] === '' ? [] : [[c.key, row[c.index] as Cell]])),
       ),
@@ -281,6 +282,8 @@ export interface TaskPatch {
   /** An empty string clears the status. */
   status?: string
   description?: string
+  /** The parent's id; an empty string clears it. */
+  parent?: string
   /** Custom columns to write, by column key (the column must already exist in the header). */
   values?: Record<string, Cell>
 }
@@ -322,6 +325,9 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
     if (p.description !== undefined) {
       data.push({ range: `${TASKS_TAB}!${columnLetter(column('description'))}${row}`, values: [[p.description]] })
     }
+    if (p.parent !== undefined) {
+      data.push({ range: `${TASKS_TAB}!${columnLetter(column('parent'))}${row}`, values: [[p.parent]] })
+    }
     for (const [key, v] of Object.entries(p.values ?? {})) {
       const i = t.header.indexOf(key)
       if (i >= 0) data.push({ range: `${TASKS_TAB}!${columnLetter(i)}${row}`, values: [[v]] })
@@ -362,6 +368,7 @@ export async function appendTask(sheetId: string, task: Task): Promise<void> {
   ])
   if (task.description) cells.set(need('description'), task.description)
   if (task.status) cells.set(need('status'), task.status)
+  if (task.parent) cells.set(need('parent'), task.parent)
   if (task.drawing?.length) cells.set(need('drawing'), encodeNoteDrawing(task.drawing, DRAWING_EPS))
   for (const [key, v] of Object.entries(task.values ?? {})) {
     const i = header.indexOf(key)
@@ -376,9 +383,12 @@ export async function appendTask(sheetId: string, task: Task): Promise<void> {
     )
   }
   const row: Cell[] = header.map((_, i) => cells.get(i) ?? '')
+  // Written at an explicit row below the last used one (never by table detection: it could land on the header).
+  let last = t.rows.length
+  while (last > 1 && t.rows[last - 1].every((c) => c === undefined || c === null || String(c).trim() === '')) last--
   await api(
-    `${API}/${id}/values/${encodeURIComponent(`${TASKS_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-    { method: 'POST', body: { values: [row] } },
+    `${API}/${id}/values/${encodeURIComponent(`${TASKS_TAB}!A${last + 1}`)}?valueInputOption=RAW`,
+    { method: 'PUT', body: { values: [row] } },
   )
 }
 
@@ -417,8 +427,6 @@ export interface BoardData {
   zones: Zone[]
   links: Link[]
   colors: ColorRule[]
-  /** child id -> parent id (stacks of tasks). */
-  parents: Record<string, string>
   /** Parents whose stack is spread open. */
   open: string[]
 }
@@ -429,7 +437,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     const res = (await api(
       `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
     )) as { values?: unknown[][] }
-    const out: BoardData = { strokes: [], zones: [], links: [], colors: [], parents: {}, open: [] }
+    const out: BoardData = { strokes: [], zones: [], links: [], colors: [], open: [] }
     for (const r of (res.values ?? []).slice(1)) {
       const id = String(r[0] ?? '')
       const type = String(r[1] ?? '')
@@ -445,9 +453,6 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
       } else if (type === 'link') {
         const l = decodeLink(id, r[2])
         if (l) out.links.push(l)
-      } else if (type === 'parent') {
-        const child = id.replace(/^parent:/, '')
-        if (child && typeof r[2] === 'string' && r[2] && r[2] !== child) out.parents[child] = r[2]
       } else if (type === 'open') {
         const parent = id.replace(/^open:/, '')
         if (parent) out.open.push(parent)
@@ -455,7 +460,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     }
     return out
   } catch (e) {
-    if (isMissingTab(e)) return { strokes: [], zones: [], links: [], colors: [], parents: {}, open: [] }
+    if (isMissingTab(e)) return { strokes: [], zones: [], links: [], colors: [], open: [] }
     throw e
   }
 }
@@ -478,7 +483,7 @@ async function createBoardTab(sheetId: string): Promise<void> {
 }
 
 /** Appends a row, creating the `_board` tab first if this is the Sheet's first one. */
-export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link' | 'color' | 'parent' | 'open', data: string): Promise<void> {
+export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link' | 'color' | 'open', data: string): Promise<void> {
   const url = `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${DRAWING_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
   const body = { values: [[rowId, type, data]] }
   try {

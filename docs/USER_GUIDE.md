@@ -82,10 +82,11 @@ Links are not drawn between overlapping notes, and a link to a hidden note is hi
 
 ## Stacks: tasks and sub-tasks
 
-- A note with sub-tasks looks like a stack (cards peeking out behind it) with a badge `▤ 3` (number of sub-tasks).
-- Tap the badge: the sub-tasks glide out of the stack and appear around it, joined to it by dotted lines; the badge becomes `▾ 3`. Tap again: they glide back and disappear. Sub-tasks can have their own sub-tasks (a tree): each level opens on its own badge.
-- Create one: select a note → **＋ Sub-task**, or open the note's details → **Parent**. Set Parent to "none" to free it again.
-- Sub-tasks are ordinary notes: move them anywhere, give them their own status/zone, color, links. A tucked sub-task is hidden wherever it sits.
+- A note with sub-tasks shows other post-its peeking out from under it, slightly tilted, and a badge `▤ 3` (number of sub-tasks).
+- Tap the badge: the sub-tasks slide out from under the stack and appear around it, joined to it by dotted lines (badge `▾ 3`). Tap again: they slide back under it and disappear. Sub-tasks can have sub-tasks (a tree): each level has its own badge.
+- Make a sub-task: select a note → **＋ Sub-task**; or **Parent** in the details; or **drag a note over another one, hold half a second** (the target gets a dashed outline) and release. Loops are refused (a note can't go under its own sub-task).
+- **⇱ Unparent** (next to Duplicate / Delete) frees a sub-task; so does Parent = none in the details.
+- The link is stored in a `parent` column of the `Tasks` tab (added automatically). Sub-tasks are ordinary notes: move them anywhere, own status/zone/color/links. A tucked sub-task is hidden wherever it sits.
 - Open/closed is shared through the Sheet (Edit mode); in read-only mode your toggles are local. Deleting a parent hands its sub-tasks to its own parent.
 - While you drag a note it lifts: shadow and a slight tilt.
 

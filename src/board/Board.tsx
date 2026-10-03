@@ -33,7 +33,7 @@ interface Props {
   noteView: (t: Task) => { chips: Chip[]; dim: boolean; hidden: boolean; color: string; ink: string }
   onChip: (chip: Chip) => void
   /** Stacks of notes: which notes are tucked under another, how many sub-tasks each note has, which stacks are open. */
-  stack: { tucked: Map<string, string>; kids: Map<string, string[]>; open: Set<string>; animating: boolean; onToggle: (id: string) => void }
+  stack: { tucked: Map<string, string>; kids: Map<string, string[]>; open: Set<string>; animating: boolean; onToggle: (id: string) => void; dropTarget: string | null }
   /** A tap on a note while not editing (opens its details). */
   onNoteOpen: (id: string) => void
   links: Link[]
@@ -555,6 +555,22 @@ export function Board({
         )}
         <LinksLayer items={linkItems} selectedId={selectedLinkId} live={liveLink} zoom={camera.zoom} />
         {tasks.map((t) => {
+          // The post-its peeking out from under a closed stack.
+          const n = stack.kids.get(t.id)?.length ?? 0
+          const v = noteView(t)
+          if (!n || v.hidden || stack.tucked.has(t.id)) return null
+          return (
+            <div
+              key={`cards-${t.id}`}
+              className={`stack-cards${stack.open.has(t.id) ? ' open' : ''}${v.dim ? ' dim' : ''}`}
+              style={{ transform: `translate(${t.board.x}px, ${t.board.y}px)`, width: NOTE_SIZE, height: NOTE_SIZE }}
+            >
+              <i style={{ background: v.color }} />
+              <i style={{ background: v.color }} />
+            </div>
+          )
+        })}
+        {tasks.map((t) => {
           const v = noteView(t)
           if (v.hidden) return null
           const anchor = stack.tucked.get(t.id)
@@ -566,6 +582,7 @@ export function Board({
             chips={v.chips}
             tuckedInto={home ?? null}
             subtasks={kids}
+            dropTarget={stack.dropTarget === t.id}
             stackOpen={stack.open.has(t.id)}
             gliding={stack.animating}
             onStack={stack.onToggle}

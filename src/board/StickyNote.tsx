@@ -40,6 +40,8 @@ interface Props {
   tuckedInto: BoardInfo | null
   /** Number of direct sub-tasks, whether their stack is open, and the toggle. */
   subtasks: number
+  /** A dragged note has been held over this one: letting go makes it a sub-task. */
+  dropTarget: boolean
   stackOpen: boolean
   onStack: (id: string) => void
   /** A stack just opened/closed: animate the move. */
@@ -71,6 +73,7 @@ export function StickyNote({
   selectedStrokeId,
   tuckedInto,
   subtasks,
+  dropTarget,
   stackOpen,
   onStack,
   gliding,
@@ -146,9 +149,11 @@ export function StickyNote({
   return (
     <div
       data-note-id={task.id}
-      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}${dim ? ' dim' : ''}${lifted ? ' lifted' : ''}${tuckedInto ? ' tucked' : ''}${gliding ? ' gliding' : ''}${subtasks > 0 && !stackOpen ? ' stacked' : ''}`}
+      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}${dim ? ' dim' : ''}${lifted ? ' lifted' : ''}${tuckedInto ? ' tucked' : ''}${dropTarget ? ' drop-target' : ''}${gliding ? ' gliding' : ''}${task.parent ? ' child' : ''}`}
       style={{
         transform: `translate(${(tuckedInto ?? task.board).x}px, ${(tuckedInto ?? task.board).y}px)`,
+        // tilt and scale turn around the note's own centre (they are applied outside the translation)
+        transformOrigin: `${(tuckedInto ?? task.board).x + NOTE_SIZE / 2}px ${(tuckedInto ?? task.board).y + NOTE_SIZE / 2}px`,
         width: NOTE_SIZE,
         height: NOTE_SIZE,
         background: color,
