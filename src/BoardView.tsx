@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Board, type Tool } from './board/Board'
+import { Board, type StrokeRef, type Tool } from './board/Board'
 import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
@@ -116,6 +116,8 @@ export function BoardView({ source }: { source: Source }) {
   /** The note being dragged right now, to light up the zone it is over. */
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [strokes, setStrokes] = useState<Stroke[]>([])
+  /** The stroke picked with the move tool. */
+  const [selectedStroke, setSelectedStroke] = useState<StrokeRef | null>(null)
   const [tool, setTool] = useState<Tool>('none')
   const [penColor, setPenColor] = useState(INK_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS.thin)
@@ -668,6 +670,31 @@ export function BoardView({ source }: { source: Source }) {
     })
   }
 
+  const onStrokeMove = (ref: StrokeRef, p: number[]) => {
+    if (ref.noteId) {
+      setTasks((ts) => ts.map((t) => (t.id === ref.noteId ? { ...t, drawing: (t.drawing ?? []).map((s) => (s.id === ref.id ? { ...s, p } : s)) } : t)))
+    } else {
+      setStrokes((ss) => ss.map((s) => (s.id === ref.id ? { ...s, p } : s)))
+    }
+  }
+
+  const onStrokeMoveEnd = (ref: StrokeRef) => {
+    if (ref.noteId) return markDirty(ref.noteId, 'drawing')
+    if (!sheetId) return
+    dirtyStrokes.current.add(ref.id)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
+  }
+
+  const deleteSelectedStroke = () => {
+    const ref = selectedStroke
+    if (!ref) return
+    setSelectedStroke(null)
+    if (ref.noteId) return removeNoteStrokes(ref.noteId, [ref.id])
+    removeStrokes([ref.id])
+    deleteStrokeRows([ref.id])
+  }
+
   const onErase = (hits: { id: string; noteId?: string }[]) => {
     const boardIds = hits.filter((h) => !h.noteId).map((h) => h.id)
     boardIds.forEach((id) => erased.current.add(id))
@@ -698,6 +725,7 @@ export function BoardView({ source }: { source: Source }) {
       setSelectedZoneId(null)
       setEditingZoneId(null)
       setZoneDetailId(null)
+      setSelectedStroke(null)
       setTool('none')
       await flush() // do not leave edit mode (which resumes polling) with unsaved changes
       setEditable(false)
@@ -846,6 +874,10 @@ export function BoardView({ source }: { source: Source }) {
         onZoneRename={onZoneRename}
         onZoneRenameDone={() => setEditingZoneId(null)}
         onZoneDraw={onZoneDraw}
+        selectedStroke={selectedStroke}
+        onStrokeSelect={setSelectedStroke}
+        onStrokeMove={onStrokeMove}
+        onStrokeMoveEnd={onStrokeMoveEnd}
         strokes={strokes}
         tool={editable ? tool : 'none'}
         penColor={penColor}
@@ -879,13 +911,14 @@ export function BoardView({ source }: { source: Source }) {
         )}
         {editable && (
           <button
-            className={tool === 'pen' || tool === 'eraser' ? 'primary' : ''}
+            className={tool === 'pen' || tool === 'eraser' || tool === 'move' ? 'primary' : ''}
             aria-label="Draw"
             onClick={() => {
               setSelectedId(null)
               setSelectedZoneId(null)
               setEditingId(null)
-              setTool((t) => (t === 'pen' || t === 'eraser' ? 'none' : 'pen'))
+              setSelectedStroke(null)
+              setTool((t) => (t === 'pen' || t === 'eraser' || t === 'move' ? 'none' : 'pen'))
             }}
           >
             ✏<span className="label"> Draw</span>
@@ -962,10 +995,13 @@ export function BoardView({ source }: { source: Source }) {
         </div>
       )}
 
-      {editable && (tool === 'pen' || tool === 'eraser') && (
+      {editable && (tool === 'pen' || tool === 'eraser' || tool === 'move') && (
         <div className="selection-bar draw-bar">
           <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} aria-label="Pen">
             ✏
+          </button>
+          <button className={tool === 'move' ? 'active' : ''} onClick={() => setTool('move')} aria-label="Move">
+            ✥
           </button>
           <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} aria-label="Eraser">
             ⌫
@@ -1005,6 +1041,11 @@ export function BoardView({ source }: { source: Source }) {
             <span className="dot thick" />
           </button>
           <span className="sep" />
+          {tool === 'move' && selectedStroke && (
+            <button className="danger" aria-label="Delete stroke" onClick={deleteSelectedStroke}>
+              🗑
+            </button>
+          )}
           <button aria-label="Undo" onClick={undoStroke}>
             ↶
           </button>

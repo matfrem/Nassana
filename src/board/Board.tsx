@@ -9,7 +9,13 @@ import { StickyNote } from './StickyNote'
 import { zoneOfNote } from './zones'
 import { ZoneView } from './ZoneView'
 
-export type Tool = 'none' | 'pen' | 'eraser' | 'zone'
+export type Tool = 'none' | 'pen' | 'eraser' | 'zone' | 'move'
+
+/** A stroke on the board (no noteId) or on a note. */
+export interface StrokeRef {
+  id: string
+  noteId?: string
+}
 
 interface Props {
   tasks: Task[]
@@ -42,6 +48,12 @@ interface Props {
   onZoneRenameDone: () => void
   /** Called when the user finishes dragging out a new zone (world coordinates). */
   onZoneDraw: (rect: { x: number; y: number; w: number; h: number }) => void
+  /** The stroke picked with the move tool (only meaningful while that tool is active). */
+  selectedStroke: StrokeRef | null
+  onStrokeSelect: (ref: StrokeRef | null) => void
+  /** While dragging: the stroke's new points, in the coordinates of its owner (board or note). */
+  onStrokeMove: (ref: StrokeRef, points: number[]) => void
+  onStrokeMoveEnd: (ref: StrokeRef) => void
   strokes: Stroke[]
   tool: Tool
   penColor: string
@@ -63,7 +75,7 @@ const GRID = 40
 const TAP_SLOP = 4
 const ERASER_RADIUS = 12 // screen px
 
-type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone'
+type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move'
 
 export function Board({
   tasks,
@@ -92,6 +104,10 @@ export function Board({
   onZoneRename,
   onZoneRenameDone,
   onZoneDraw,
+  selectedStroke,
+  onStrokeSelect,
+  onStrokeMove,
+  onStrokeMoveEnd,
   strokes,
   tool,
   penColor,
@@ -110,6 +126,16 @@ export function Board({
   const live = useRef<{ pts: number[]; width: number; noteId: string | null } | null>(null)
   const [liveClip, setLiveClip] = useState<Clip | null>(null)
   const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
+  const moving = useRef<{
+    ref: StrokeRef
+    orig: number[]
+    sx: number
+    sy: number
+    /** Allowed offsets (note strokes must keep a part inside their note, or they would vanish). */
+    min: { x: number; y: number }
+    max: { x: number; y: number }
+    moved: boolean
+  } | null>(null)
   const zoneStart = useRef<{ x: number; y: number } | null>(null)
   const [liveZone, setLiveZone] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [panning, setPanning] = useState(false)
@@ -146,6 +172,21 @@ export function Board({
     return screenToWorld(camRef.current, l.x, l.y)
   }
 
+  /** The topmost stroke near a world point, with its points: board strokes first, then notes' (topmost note first). */
+  const strokeAt = (x: number, y: number): { ref: StrokeRef; p: number[] } | null => {
+    const r = 14 / camRef.current.zoom // generous: it has to work with a fingertip
+    const board = [...strokesRef.current].reverse().find((s) => hitsStroke(s, x, y, r))
+    if (board) return { ref: { id: board.id }, p: board.p }
+    for (const t of [...tasksRef.current].reverse()) {
+      const lx = x - t.board.x
+      const ly = y - t.board.y
+      if (!t.drawing?.length || lx < -r || ly < -r || lx > NOTE_SIZE + r || ly > NOTE_SIZE + r) continue
+      const s = [...t.drawing].reverse().find((st) => hitsStroke(st, lx, ly, r))
+      if (s) return { ref: { id: s.id, noteId: t.id }, p: s.p }
+    }
+    return null
+  }
+
   const showLive = () => {
     const l = live.current
     setLiveStroke(l ? { id: 'live', c: penColor, w: l.width, p: l.pts } : null)
@@ -178,6 +219,8 @@ export function Board({
     if (mode.current === 'erase') onEraseEnd()
     zoneStart.current = null
     setLiveZone(null)
+    if (mode.current === 'move' && moving.current?.moved) onStrokeMoveEnd(moving.current.ref)
+    moving.current = null
     live.current = null
     showLive()
   }
@@ -220,6 +263,28 @@ export function Board({
     } else if (tool === 'zone') {
       zoneStart.current = world(e)
       mode.current = 'zone'
+    } else if (tool === 'move') {
+      // Press on a stroke to pick it and drag it; press on empty space to drop the selection.
+      const w = world(e)
+      const hit = strokeAt(w.x, w.y)
+      mode.current = 'move'
+      if (!hit) {
+        onStrokeSelect(null)
+      } else {
+        onStrokeSelect(hit.ref)
+        const xs = hit.p.filter((_, i) => i % 2 === 0)
+        const ys = hit.p.filter((_, i) => i % 2 === 1)
+        const keep = 12
+        moving.current = {
+          ref: hit.ref,
+          orig: hit.p,
+          sx: w.x,
+          sy: w.y,
+          min: hit.ref.noteId ? { x: keep - Math.max(...xs), y: keep - Math.max(...ys) } : { x: -Infinity, y: -Infinity },
+          max: hit.ref.noteId ? { x: NOTE_SIZE - keep - Math.min(...xs), y: NOTE_SIZE - keep - Math.min(...ys) } : { x: Infinity, y: Infinity },
+          moved: false,
+        }
+      }
     } else mode.current = 'pan'
   }
 
@@ -256,6 +321,14 @@ export function Board({
       }
     } else if (mode.current === 'erase') {
       erase(e)
+    } else if (mode.current === 'move' && moving.current) {
+      const m = moving.current
+      const w = world(e)
+      const dx = Math.min(m.max.x, Math.max(m.min.x, w.x - m.sx))
+      const dy = Math.min(m.max.y, Math.max(m.min.y, w.y - m.sy))
+      if (!m.moved && Math.hypot(dx, dy) * camRef.current.zoom < TAP_SLOP) return
+      m.moved = true
+      onStrokeMove(m.ref, m.orig.map((v, i) => Math.round((v + (i % 2 === 0 ? dx : dy)) * 10) / 10))
     } else if (mode.current === 'zone' && zoneStart.current) {
       const a = zoneStart.current
       const w = world(e)
@@ -276,6 +349,9 @@ export function Board({
       onStroke(live.current.pts, live.current.width, live.current.noteId)
     } else if (mode.current === 'erase') {
       onEraseEnd()
+    } else if (mode.current === 'move') {
+      if (moving.current?.moved) onStrokeMoveEnd(moving.current.ref)
+      moving.current = null
     } else if (mode.current === 'zone') {
       // Ignore accidental taps: a zone must be at least ~40 screen pixels each way.
       const min = 40 / camRef.current.zoom
@@ -364,6 +440,7 @@ export function Board({
             color={v.color}
             level={level}
             tooling={tool !== 'none'}
+            selectedStrokeId={tool === 'move' && selectedStroke?.noteId === t.id ? selectedStroke.id : null}
             onChip={onChip}
             task={t}
             zoom={camera.zoom}
@@ -379,7 +456,7 @@ export function Board({
           />
           )
         })}
-        <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} />
+        <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} selectedId={tool === 'move' && selectedStroke && !selectedStroke.noteId ? selectedStroke.id : null} />
       </div>
     </div>
   )

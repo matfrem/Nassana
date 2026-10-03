@@ -31,6 +31,8 @@ interface Props {
   /** A drawing tool is active: pills must not catch presses meant for drawing. */
   tooling: boolean
   onChip: (chip: Chip) => void
+  /** The note's stroke picked with the move tool. */
+  selectedStrokeId: string | null
 }
 
 export function StickyNote({
@@ -51,6 +53,7 @@ export function StickyNote({
   level,
   tooling,
   onChip,
+  selectedStrokeId,
 }: Props) {
   const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -161,7 +164,10 @@ export function StickyNote({
       {task.drawing && task.drawing.length > 0 && (
         <svg className="note-ink" width={NOTE_SIZE} height={NOTE_SIZE}>
           {task.drawing.map((s) => (
-            <path key={s.id} d={pathFor(s.p)} stroke={s.c} strokeWidth={s.w} />
+            <g key={s.id}>
+              {s.id === selectedStrokeId && <path className="stroke-halo" d={pathFor(s.p)} style={{ strokeWidth: `calc(${s.w}px + 12px / var(--zoom, 1))` }} />}
+              <path d={pathFor(s.p)} stroke={s.c} strokeWidth={s.w} />
+            </g>
           ))}
         </svg>
       )}

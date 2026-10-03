@@ -26,6 +26,7 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Drawing on notes (a stroke started on a note belongs to it; stored in the `drawing` column)
 - [x] Zones = scrum board: a note dropped in a zone takes the zone's name as its `status`
 - [x] Custom properties: `xxx#` columns become pills on notes; details panel; quick filter; color-by; zone counters + WIP limit
+- [x] Move tool for strokes (press a stroke and drag; board strokes and note strokes)
 - [x] Two-finger pan + zoom on touch screens
 
 ## Sheet format
