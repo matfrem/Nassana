@@ -16,3 +16,5 @@ export const ZONE_MIN_SIZE = 140
 export const GRID = 40
 export const ZONE_TITLE_SIZE = 26
 export const ZONE_TITLE_SIZES = { min: 14, max: 80 } as const
+/** Side of the (mostly empty) SVG layers for strokes and links, centred on the origin: big enough to never clip the drawing. */
+export const SPAN = 60_000

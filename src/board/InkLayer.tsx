@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { SPAN } from '../constants'
 import type { Stroke } from '../types'
 import { pathFor } from './ink'
 
@@ -23,7 +24,7 @@ export const Ink = memo(function Ink({
   selectedId: string | null
 }) {
   return (
-    <svg className="ink" width={1} height={1}>
+    <svg className="ink" width={SPAN} height={SPAN} viewBox={`${-SPAN / 2} ${-SPAN / 2} ${SPAN} ${SPAN}`} style={{ left: -SPAN / 2, top: -SPAN / 2 }}>
       {strokes.map((s) => (
         <g key={s.id}>
           {s.id === selectedId && <path className="stroke-halo" d={pathFor(s.p)} style={{ strokeWidth: `calc(${s.w}px + 12px / var(--zoom, 1))` }} />}

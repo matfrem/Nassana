@@ -510,6 +510,7 @@ export function Board({
       style={{
         cursor: tool !== 'none' ? 'crosshair' : panning ? 'grabbing' : 'grab',
         backgroundSize: `${gridSize}px ${gridSize}px`,
+        backgroundImage: gridSize < 12 ? 'none' : undefined, // dots closer than that only shimmer
         backgroundPosition: `${camera.x}px ${camera.y}px`,
       }}
       onPointerDownCapture={onPointerDownCapture}
@@ -520,7 +521,7 @@ export function Board({
       onContextMenu={(e) => e.preventDefault()}
     >
       <div
-        className="world"
+        className={`world${level === 0 ? ' far' : ''}`}
         style={{
           transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
           // Lets the CSS keep selection outlines and handles the same size on screen at any zoom.

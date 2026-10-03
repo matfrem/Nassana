@@ -39,7 +39,7 @@ body {
   top: 0;
   left: 0;
   transform-origin: 0 0;
-  will-change: transform;
+  /* no will-change: a promoted layer is rasterized once and scaled, which tears and clips on Android Chrome when zoomed out */
 }
 
 .note {
@@ -278,8 +278,6 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
 .ink {
   position: absolute;
-  top: 0;
-  left: 0;
   overflow: visible;
   pointer-events: none;
 }
@@ -578,7 +576,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 /* ---- links between notes ---- */
 :root { --link: #475569; }
 @media (prefers-color-scheme: dark) { :root { --link: #94a3b8; } }
-.links { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+.links { position: absolute; overflow: visible; pointer-events: none; }
 .links { --lw: max(4px, calc(2.5px / var(--zoom, 1))); }
 .link-line {
   stroke: var(--link);
@@ -777,3 +775,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .cp-swatches.grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
 .cp-swatches.grid .cp-swatch { width: auto; aspect-ratio: 1; border-radius: 4px; border-width: 1px; }
 .cp-swatches.grid .cp-swatch.on { outline-offset: 1px; }
+
+/* zoomed far out: cheaper drawing (no shadows, no dots) so phones keep up */
+.world.far .note, .world.far .zone { box-shadow: none; }
+.world.far .stack-cards i { box-shadow: none; }

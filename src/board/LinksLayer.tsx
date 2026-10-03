@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { NOTE_SIZE } from '../constants'
+import { NOTE_SIZE, SPAN } from '../constants'
 import type { Link } from '../types'
 import { arrowHead, type Segment } from './links'
 
@@ -31,7 +31,7 @@ export const LinksLayer = memo(function LinksLayer({
   // Keep the arrowhead readable when zoomed out: never smaller than ~10 screen pixels.
   const head = Math.max(16, 10 / zoom)
   return (
-    <svg className="links" width={1} height={1}>
+    <svg className="links" width={SPAN} height={SPAN} viewBox={`${-SPAN / 2} ${-SPAN / 2} ${SPAN} ${SPAN}`} style={{ left: -SPAN / 2, top: -SPAN / 2 }}>
       {items.map(({ link, seg, dim }) => (
         <g key={link.id} className={`link${link.id.startsWith('stack:') ? ' stack' : ''}${dim ? ' dim' : ''}`}>
           {link.id === selectedId && <line className="link-halo" x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />}

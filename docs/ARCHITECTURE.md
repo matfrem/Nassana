@@ -97,6 +97,11 @@ columns already occupy → append new columns → write headers → validation/f
 - A click after `setPointerCapture` is retargeted to the capturing element: interactive bits inside notes (pills) stop `pointerdown` propagation.
 - Google's OAuth consent screen in *Testing* mode only lets listed test users in.
 
+## Rendering notes
+
+- The world layer has **no `will-change: transform`**: a promoted layer is rasterized once and then scaled, which tears and clips on Android Chrome when zoomed out. The stroke and link SVGs are large (±30 000 units, centred on the origin) instead of 1×1 with `overflow: visible`, for the same reason.
+- Zoomed far out (`.world.far`) shadows are dropped, and the background dots disappear when they would be closer than 12 px.
+
 ## Testing
 
 - **Unit** (Vitest, `src/**/*.test.ts`): `npm test`. Pure logic: ink encoding, zones, links, fields, Sheets helpers, columns requests, view state.
