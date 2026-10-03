@@ -32,6 +32,7 @@ interface Props {
   /** The zone a dragged note is currently over. */
   highlightZoneId: string | null
   onZoneSelect: (id: string) => void
+  onZoneOpen: (id: string) => void
   onZoneDragStart: (id: string) => void
   onZoneDrag: (id: string, x: number, y: number) => void
   onZoneDragEnd: (id: string) => void
@@ -82,6 +83,7 @@ export function Board({
   editingZoneId,
   highlightZoneId,
   onZoneSelect,
+  onZoneOpen,
   onZoneDragStart,
   onZoneDrag,
   onZoneDragEnd,
@@ -319,7 +321,11 @@ export function Board({
     >
       <div
         className="world"
-        style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
+        style={{
+          transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
+          // Lets the CSS keep selection outlines and handles the same size on screen at any zoom.
+          ['--zoom' as string]: camera.zoom,
+        }}
       >
         {zones.map((z) => (
           <ZoneView
@@ -332,6 +338,7 @@ export function Board({
             highlight={z.id === highlightZoneId}
             count={counts.get(z.id) ?? 0}
             onSelect={onZoneSelect}
+            onOpen={onZoneOpen}
             onDragStart={onZoneDragStart}
             onDrag={onZoneDrag}
             onDragEnd={onZoneDragEnd}
@@ -366,6 +373,7 @@ export function Board({
             onMove={onMove}
             onMoveEnd={onMoveEnd}
             onSelect={onSelect}
+            onOpen={onNoteOpen}
             onRename={onRename}
             onRenameDone={onRenameDone}
           />

@@ -15,6 +15,8 @@ interface Props {
   /** Number of notes inside. */
   count: number
   onSelect: (id: string) => void
+  /** Double tap/click on the title strip: open the zone's details. */
+  onOpen: (id: string) => void
   onDragStart: (id: string) => void
   onDrag: (id: string, x: number, y: number) => void
   onDragEnd: (id: string) => void
@@ -35,6 +37,7 @@ export function ZoneView({
   highlight,
   count,
   onSelect,
+  onOpen,
   onDragStart,
   onDrag,
   onDragEnd,
@@ -47,6 +50,7 @@ export function ZoneView({
   const size = useRef<Gesture | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const cancelled = useRef(false)
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
 
   useEffect(() => {
     if (editing) {
@@ -78,7 +82,16 @@ export function ZoneView({
     if (!g) return
     move.current = null
     if (g.moved) onDragEnd(zone.id)
-    else if (e.type === 'pointerup') onSelect(zone.id)
+    else if (e.type === 'pointerup') {
+      const prev = lastTap.current
+      if (prev && Date.now() - prev.t < 350 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 30) {
+        lastTap.current = null
+        onOpen(zone.id)
+      } else {
+        lastTap.current = { t: Date.now(), x: e.clientX, y: e.clientY }
+        onSelect(zone.id)
+      }
+    }
   }
 
   // Corner handle: resize.

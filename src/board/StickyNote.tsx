@@ -16,6 +16,8 @@ interface Props {
   /** Called when a drag ends (this is where we save to the Sheet). */
   onMoveEnd: (id: string) => void
   onSelect: (id: string) => void
+  /** Double tap/click: open the details. */
+  onOpen: (id: string) => void
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
   /** Pills built from the `#` columns. */
@@ -40,6 +42,7 @@ export function StickyNote({
   onMove,
   onMoveEnd,
   onSelect,
+  onOpen,
   onRename,
   onRenameDone,
   chips,
@@ -52,6 +55,7 @@ export function StickyNote({
   const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const cancelled = useRef(false)
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
 
   useEffect(() => {
     if (editing) {
@@ -84,7 +88,16 @@ export function StickyNote({
     if (!d) return
     drag.current = null
     if (d.moved) onMoveEnd(task.id)
-    else if (e.type === 'pointerup') onSelect(task.id)
+    else if (e.type === 'pointerup') {
+      const prev = lastTap.current
+      if (prev && Date.now() - prev.t < 350 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 30) {
+        lastTap.current = null
+        onOpen(task.id)
+      } else {
+        lastTap.current = { t: Date.now(), x: e.clientX, y: e.clientY }
+        onSelect(task.id)
+      }
+    }
   }
 
   const commit = (value: string) => {

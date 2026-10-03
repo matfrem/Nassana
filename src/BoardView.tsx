@@ -6,6 +6,7 @@ import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS } from './constants'
 import { demoTasks } from './data'
 import { DetailPanel } from './DetailPanel'
+import { ZonePanel } from './ZonePanel'
 import {
   buildFields,
   chipFor,
@@ -85,6 +86,7 @@ export function BoardView({ source }: { source: Source }) {
   const [columns, setColumns] = useState<Column[]>([])
   const [meta, setMeta] = useState<Record<string, FieldMeta>>({})
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [zoneDetailId, setZoneDetailId] = useState<string | null>(null)
   /** Quick filter: only notes with this value in this column stay bright. */
   const [filter, setFilter] = useState<{ key: string; raw: string; text: string; label: string } | null>(null)
   const [colorBy, setColorByState] = useState<string>(() => {
@@ -333,8 +335,8 @@ export function BoardView({ source }: { source: Source }) {
       if (!task) return
       const c = centerOf(task)
       const zone = zoneAt(zonesRef.current, c.x, c.y)
-      if (zone && task.status !== zone.name) {
-        setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, status: zone.name } : t)))
+      if (zone && zone.name.trim() && task.status !== zone.name.trim()) {
+        setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, status: zone.name.trim() } : t)))
         markDirty(id, 'status')
       }
     },
@@ -343,10 +345,12 @@ export function BoardView({ source }: { source: Source }) {
 
   /** Every note inside the zone takes its name as status (after a rename, resize or new zone). */
   const syncStatuses = (zone: Zone, all: Zone[]) => {
-    const inZone = notesInZone(all, zone, tasksRef.current).filter((t) => t.status !== zone.name)
+    const name = zone.name.trim()
+    if (!name) return // a zone being renamed has no status yet: leave the notes alone
+    const inZone = notesInZone(all, zone, tasksRef.current).filter((t) => t.status !== name)
     if (inZone.length === 0) return
     const ids = new Set(inZone.map((t) => t.id))
-    setTasks((ts) => ts.map((t) => (ids.has(t.id) ? { ...t, status: zone.name } : t)))
+    setTasks((ts) => ts.map((t) => (ids.has(t.id) ? { ...t, status: name } : t)))
     ids.forEach((id) => markDirty(id, 'status'))
   }
 
@@ -424,10 +428,15 @@ export function BoardView({ source }: { source: Source }) {
     syncStatuses(renamed, all)
   }
 
-  const onZoneColor = (color: string) => {
-    if (!selectedZoneId) return
-    patchZone(selectedZoneId, { color })
-    markZoneDirty(selectedZoneId)
+  const onZoneColor = (color: string, id = selectedZoneId) => {
+    if (!id) return
+    patchZone(id, { color })
+    markZoneDirty(id)
+  }
+
+  const onZoneLimit = (id: string, limit: number | undefined) => {
+    patchZone(id, { limit })
+    markZoneDirty(id)
   }
 
   const createZones = (rects: { x: number; y: number; w: number; h: number; name: string; color: string }[]) => {
@@ -480,12 +489,13 @@ export function BoardView({ source }: { source: Source }) {
     setTool('none')
   }
 
-  const deleteSelectedZone = () => {
-    const zone = zones.find((z) => z.id === selectedZoneId)
+  const deleteZone = (id: string | null = selectedZoneId) => {
+    const zone = zones.find((z) => z.id === id)
     if (!zone) return
     if (!window.confirm(`Delete the zone "${zone.name}"? Its notes stay where they are.`)) return
     setZones((zs) => zs.filter((z) => z.id !== zone.id))
     setSelectedZoneId(null)
+    setZoneDetailId(null)
     dirtyZones.current.delete(zone.id)
     if (!sheetId) return
     setSave({ kind: 'saving' })
@@ -535,6 +545,36 @@ export function BoardView({ source }: { source: Source }) {
       } catch (e) {
         setTasks((ts) => ts.filter((t) => t.id !== task.id))
         dirty.current.delete(task.id)
+        fail(e)
+      }
+    })
+  }
+
+  /** A copy of the selected note (title, description, status, properties, drawing) in the nearest free spot. */
+  const duplicateSelected = () => {
+    const src = tasksRef.current.find((t) => t.id === selectedId)
+    if (!src) return
+    const id = crypto.randomUUID().slice(0, 8)
+    const spot = freeSpot(tasksRef.current, src.board.x, src.board.y)
+    const copy: Task = {
+      ...src,
+      id,
+      board: { ...src.board, ...spot },
+      autoPlaced: false,
+      values: { ...src.values },
+      drawing: src.drawing?.map((s, i) => ({ ...s, id: `${id}-${i}`, p: [...s.p] })),
+    }
+    setTasks((ts) => [...ts, copy])
+    setSelectedId(id)
+    setDetailId(null)
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await appendTask(sheetId, copy)
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        setTasks((ts) => ts.filter((t) => t.id !== id))
         fail(e)
       }
     })
@@ -657,6 +697,7 @@ export function BoardView({ source }: { source: Source }) {
       setSelectedId(null)
       setSelectedZoneId(null)
       setEditingZoneId(null)
+      setZoneDetailId(null)
       setTool('none')
       await flush() // do not leave edit mode (which resumes polling) with unsaved changes
       setEditable(false)
@@ -750,16 +791,6 @@ export function BoardView({ source }: { source: Source }) {
     markDirty(id, 'status')
   }
 
-  const setZoneLimit = () => {
-    const z = zones.find((zz) => zz.id === selectedZoneId)
-    if (!z) return
-    const answer = window.prompt(`Work-in-progress limit for "${z.name}" (empty = no limit)`, z.limit ? String(z.limit) : '')
-    if (answer === null) return
-    const n = Number.parseInt(answer, 10)
-    patchZone(z.id, { limit: Number.isInteger(n) && n > 0 ? n : undefined })
-    markZoneDirty(z.id)
-  }
-
   const zoomTo = (f: number | 'reset') =>
     setCamera((c) =>
       zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, f === 'reset' ? 1 : c.zoom * f),
@@ -777,11 +808,17 @@ export function BoardView({ source }: { source: Source }) {
         onSelect={(id) => {
           setSelectedId(id)
           setSelectedZoneId(null)
-          if (!id) setDetailId(null)
+          if (!id) {
+            setDetailId(null)
+            setZoneDetailId(null)
+          }
         }}
         noteView={noteView}
         onChip={onChip}
-        onNoteOpen={setDetailId}
+        onNoteOpen={(id) => {
+          setDetailId(id)
+          setZoneDetailId(null)
+        }}
         onRename={onRename}
         onRenameDone={() => setEditingId(null)}
         zones={zones}
@@ -791,6 +828,12 @@ export function BoardView({ source }: { source: Source }) {
           const t = draggingId ? tasks.find((n) => n.id === draggingId) : undefined
           return t ? (zoneAt(zones, centerOf(t).x, centerOf(t).y)?.id ?? null) : null
         })()}
+        onZoneOpen={(id) => {
+          setZoneDetailId(id)
+          setSelectedZoneId(id)
+          setSelectedId(null)
+          setDetailId(null)
+        }}
         onZoneSelect={(id) => {
           setSelectedZoneId(id)
           setSelectedId(null)
@@ -909,8 +952,10 @@ export function BoardView({ source }: { source: Source }) {
             />
           ))}
           <span className="sep" />
-          <button onClick={() => setEditingId(selectedId)}>✎ Rename</button>
           <button onClick={() => setDetailId(selectedId)}>☰ Details</button>
+          <button onClick={duplicateSelected} aria-label="Duplicate">
+            ⧉ Duplicate
+          </button>
           <button className="danger" onClick={deleteSelected}>
             🗑 Delete
           </button>
@@ -974,7 +1019,7 @@ export function BoardView({ source }: { source: Source }) {
         </div>
       )}
 
-      {editable && tool === 'none' && selectedZoneId && !editingZoneId && (
+      {editable && tool === 'none' && selectedZoneId && !editingZoneId && !zoneDetailId && (
         <div className="selection-bar">
           {ZONE_COLORS.map((c) => (
             <button
@@ -986,9 +1031,8 @@ export function BoardView({ source }: { source: Source }) {
             />
           ))}
           <span className="sep" />
-          <button onClick={() => setEditingZoneId(selectedZoneId)}>✎ Rename</button>
-          <button onClick={setZoneLimit}>⏱ Limit</button>
-          <button className="danger" onClick={deleteSelectedZone}>
+          <button onClick={() => setZoneDetailId(selectedZoneId)}>☰ Details</button>
+          <button className="danger" onClick={() => deleteZone()}>
             🗑 Delete
           </button>
         </div>
@@ -1013,6 +1057,18 @@ export function BoardView({ source }: { source: Source }) {
             </button>
           )}
         </div>
+      )}
+
+      {zoneDetailId && zones.find((z) => z.id === zoneDetailId) && (
+        <ZonePanel
+          zone={zones.find((z) => z.id === zoneDetailId)!}
+          count={notesInZone(zones, zones.find((z) => z.id === zoneDetailId)!, tasks).length}
+          onClose={() => setZoneDetailId(null)}
+          onName={onZoneRename}
+          onColor={(id, c) => onZoneColor(c, id)}
+          onLimit={onZoneLimit}
+          onDelete={deleteZone}
+        />
       )}
 
       {detailId && tasks.find((t) => t.id === detailId) && (

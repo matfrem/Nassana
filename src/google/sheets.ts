@@ -325,25 +325,43 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
   })
 }
 
-/** Appends a new row at the bottom of the Tasks tab. */
+/** Appends a task as a new row at the bottom of the Tasks tab, with all its columns. */
 export async function appendTask(sheetId: string, task: Task): Promise<void> {
+  const id = encodeURIComponent(sheetId)
   const t = await readTable(sheetId)
   const header = [...t.header]
-  let iBoard = header.indexOf('board')
-  if (iBoard < 0) {
-    iBoard = header.length
-    header.push('board')
+  // Columns this task needs but the Sheet does not have yet are added to the header.
+  const need = (name: string) => {
+    let i = header.indexOf(name)
+    if (i < 0) {
+      i = header.length
+      header.push(name)
+    }
+    return i
+  }
+  const cells = new Map<number, Cell>([
+    [t.iId, task.id],
+    [t.iTitle, task.title],
+    [need('board'), boardJson(task.board)],
+  ])
+  if (task.description) cells.set(need('description'), task.description)
+  if (task.status) cells.set(need('status'), task.status)
+  if (task.drawing?.length) cells.set(need('drawing'), encodeNoteDrawing(task.drawing, DRAWING_EPS))
+  for (const [key, v] of Object.entries(task.values ?? {})) {
+    const i = header.indexOf(key)
+    if (i >= 0) cells.set(i, v)
+  }
+
+  if (header.length > t.header.length) {
+    const added = header.slice(t.header.length)
     await api(
-      `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${TASKS_TAB}!${columnLetter(iBoard)}1`)}?valueInputOption=RAW`,
-      { method: 'PUT', body: { values: [['board']] } },
+      `${API}/${id}/values/${encodeURIComponent(`${TASKS_TAB}!${columnLetter(t.header.length)}1:${columnLetter(header.length - 1)}1`)}?valueInputOption=RAW`,
+      { method: 'PUT', body: { values: [added] } },
     )
   }
-  const row: string[] = header.map(() => '')
-  row[t.iId] = task.id
-  row[t.iTitle] = task.title
-  row[iBoard] = boardJson(task.board)
+  const row: Cell[] = header.map((_, i) => cells.get(i) ?? '')
   await api(
-    `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${TASKS_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    `${API}/${id}/values/${encodeURIComponent(`${TASKS_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { method: 'POST', body: { values: [row] } },
   )
 }

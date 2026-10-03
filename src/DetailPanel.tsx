@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { DateField } from './DateField'
 import { isoOf, type Field } from './fields'
 import type { Task } from './types'
 
@@ -128,7 +129,7 @@ function FieldRow({
       </select>
     )
   } else if (field.type === 'date') {
-    control = <input type="date" value={isoOf(v)} onChange={(e) => set(e.target.value)} />
+    control = <DateField value={v} onChange={set} />
   } else {
     control = (
       <input
@@ -141,7 +142,7 @@ function FieldRow({
   }
 
   return (
-    <label className={field.type === 'checkbox' ? 'inline' : undefined}>
+    <label className={field.type === 'checkbox' ? 'inline' : undefined} onClick={field.type === 'date' ? (e) => e.preventDefault() : undefined}>
       <span>
         {field.label}
         {field.shown && <i title="Shown on the note"> #</i>}

@@ -81,3 +81,10 @@ A zone is a rectangle with a name; its name is the status. Zones are rows of typ
 - Tap a note to open its panel (editable in Edit mode). Tap a pill to filter on that value. The `◐` button colors notes
   by a property (kept per device). Zones show how many notes they hold; the `⏱ Limit` button sets a WIP limit.
 - Zoomed out, notes show only their title; pills appear at about 45% zoom and the description at about 80%.
+
+## Editing notes and zones
+
+In Edit mode, tap a note or a zone's title strip to select it; the bottom bar offers colors, **Details**, and (for notes)
+**Duplicate**, plus Delete. Double-tap opens the details directly. Notes and zones are renamed in their details panel;
+a zone's panel also holds its color and work-in-progress limit. Dates are typed with the numeric keypad (`15012030`),
+picked from the calendar button, or set with the Today / Tomorrow / +1 week shortcuts.
