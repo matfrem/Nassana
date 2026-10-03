@@ -12,3 +12,5 @@ export const ZONE_COLORS = ['#94A3B8', '#60A5FA', '#34D399', '#FBBF24', '#F87171
 /** Height of a zone's title strip (the part you grab to move it), in world units. */
 export const ZONE_HEADER = 48
 export const ZONE_MIN_SIZE = 140
+/** Spacing of the background dots, in world units: dragged notes snap their top-left corner onto them. */
+export const GRID = 40

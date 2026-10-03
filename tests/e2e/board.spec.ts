@@ -119,7 +119,7 @@ test('saves a moved note by its row id, even when rows are out of order', async 
   await openBoard(page, sheet)
   await startEditing(page)
   const c = await noteCenter(page, 'First')
-  await drag(page, c, { x: c.x, y: c.y + 90 })
+  await drag(page, c, { x: c.x, y: c.y + 130 })
   await expect.poll(() => JSON.parse(String(sheet.cell('Tasks', 'D3'))).y).toBeGreaterThan(80)
   expect(JSON.parse(String(sheet.cell('Tasks', 'D3'))).x).toBeCloseTo(0, -1)
   expect(sheet.cell('Tasks', 'D2')).toBe(board(300, 0)) // the other note's cell was not touched

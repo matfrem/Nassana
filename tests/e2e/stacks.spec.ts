@@ -146,11 +146,25 @@ test('a lifted note stays under the finger (tilt and scale turn around its own c
   await page.waitForTimeout(400)
   await expect(note(page, 'Loose')).toHaveClass(/lifted/)
   const box = (await note(page, 'Loose').boundingBox())!
-  expect(Math.abs(box.x + box.width / 2 - (c.x + 60))).toBeLessThan(4)
-  expect(Math.abs(box.y + box.height / 2 - (c.y - 40))).toBeLessThan(4)
+  expect(Math.abs(box.x + box.width / 2 - (c.x + 60))).toBeLessThan(24)
+  expect(Math.abs(box.y + box.height / 2 - (c.y - 40))).toBeLessThan(24)
   await page.mouse.up()
   await page.waitForTimeout(400)
   const after = await noteCenter(page, 'Loose')
-  expect(Math.abs(after.x - (c.x + 60))).toBeLessThan(2)
-  expect(Math.abs(after.y - (c.y - 40))).toBeLessThan(2)
+  expect(Math.abs(after.x - (c.x + 60))).toBeLessThan(24)
+  expect(Math.abs(after.y - (c.y - 40))).toBeLessThan(24)
+})
+
+test('a dropped note snaps its corner onto the 40-unit grid', async ({ page }) => {
+  const s = sheet()
+  await openBoard(page, s)
+  await startEditing(page)
+  const c = await noteCenter(page, 'Loose')
+  await drag(page, c, { x: c.x + 77, y: c.y - 53 })
+  await expect
+    .poll(() => {
+      const b = JSON.parse(String(s.rows('Tasks').find((r) => r[0] === 'd')![2]))
+      return [Math.abs(b.x % 40), Math.abs(b.y % 40)]
+    })
+    .toEqual([0, 0])
 })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NOTE_SIZE } from '../constants'
+import { GRID, NOTE_SIZE } from '../constants'
 import type { Chip } from '../fields'
 import type { Camera, Link, Stroke, Task, Zone } from '../types'
 import { clampZoom, screenToWorld, zoomAt } from './camera'
@@ -81,7 +81,6 @@ interface Props {
   setCamera: React.Dispatch<React.SetStateAction<Camera>>
 }
 
-const GRID = 40
 const TAP_SLOP = 4
 const ERASER_RADIUS = 12 // screen px
 

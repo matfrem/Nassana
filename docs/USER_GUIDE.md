@@ -89,6 +89,7 @@ Links are not drawn between overlapping notes, and a link to a hidden note is hi
 - The link is stored in a `parent` column of the `Tasks` tab (added automatically). Sub-tasks are ordinary notes: move them anywhere, own status/zone/color/links. A tucked sub-task is hidden wherever it sits.
 - Open/closed is shared through the Sheet (Edit mode); in read-only mode your toggles are local. Deleting a parent hands its sub-tasks to its own parent.
 - While you drag a note it lifts: shadow and a slight tilt.
+- Dragged notes snap onto the dots of the background (40 units apart).
 
 ## Colors, filters and hiding
 

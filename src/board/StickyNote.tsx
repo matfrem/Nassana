@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NOTE_SIZE } from '../constants'
+import { GRID, NOTE_SIZE } from '../constants'
 import type { BoardInfo } from '../types'
 import type { Chip } from '../fields'
 import type { Task } from '../types'
@@ -120,7 +120,8 @@ export function StickyNote({
     if (!d.moved && Math.hypot(dx, dy) < TAP_SLOP) return
     d.moved = true
     setLifted(true)
-    onMove(task.id, d.x + dx / zoom, d.y + dy / zoom)
+    // snap the top-left corner onto the background dots
+    onMove(task.id, Math.round((d.x + dx / zoom) / GRID) * GRID, Math.round((d.y + dy / zoom) / GRID) * GRID)
   }
 
   const end = (e: React.PointerEvent) => {
