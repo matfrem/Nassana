@@ -15,3 +15,6 @@ export const TASKS_TAB = 'Tasks'
 
 /** Required columns, matched by header name (case-insensitive). */
 export const REQUIRED_COLUMNS = ['id', 'title'] as const
+
+/** Tab that holds the freehand drawing (one row per stroke). Created on the first stroke. */
+export const DRAWING_TAB = '_board'

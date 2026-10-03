@@ -1,6 +1,7 @@
 import { NOTE_COLORS, NOTE_SIZE, NOTE_STEP } from '../constants'
-import { REQUIRED_COLUMNS, TASKS_TAB } from '../config'
-import type { BoardInfo, Task } from '../types'
+import { DRAWING_TAB, REQUIRED_COLUMNS, TASKS_TAB } from '../config'
+import { decodeStroke, encodeStroke } from '../board/ink'
+import type { BoardInfo, Stroke, Task } from '../types'
 import { AuthRequiredError, getToken, invalidateToken } from './auth'
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -323,4 +324,90 @@ export async function deleteTask(sheetId: string, taskId: string): Promise<void>
       ],
     },
   })
+}
+
+// ---------------------------------------------------------------------------------
+// Drawing: one row per stroke in the `_board` tab: id | type | data
+// ---------------------------------------------------------------------------------
+
+const DRAWING_HEADER = ['id', 'type', 'data']
+
+const isMissingTab = (e: unknown) => e instanceof SheetError && e.fix?.kind === 'no-tab'
+
+/** Reads all strokes. A Sheet without the `_board` tab simply has no drawing. */
+export async function fetchDrawing(sheetId: string): Promise<Stroke[]> {
+  try {
+    const res = (await api(
+      `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
+    )) as { values?: unknown[][] }
+    const strokes: Stroke[] = []
+    for (const r of (res.values ?? []).slice(1)) {
+      if (String(r[1] ?? '') !== 'stroke') continue
+      const s = decodeStroke(String(r[0] ?? ''), r[2])
+      if (s) strokes.push(s)
+    }
+    return strokes
+  } catch (e) {
+    if (isMissingTab(e)) return []
+    throw e
+  }
+}
+
+async function createDrawingTab(sheetId: string): Promise<void> {
+  const id = encodeURIComponent(sheetId)
+  const meta = (await api(`${API}/${id}?fields=sheets.properties.title`)) as {
+    sheets?: { properties: { title: string } }[]
+  }
+  if (!meta.sheets?.some((s) => s.properties.title === DRAWING_TAB)) {
+    await api(`${API}/${id}:batchUpdate`, {
+      method: 'POST',
+      body: { requests: [{ addSheet: { properties: { title: DRAWING_TAB } } }] },
+    })
+  }
+  await api(`${API}/${id}/values/${encodeURIComponent(`${DRAWING_TAB}!A1:C1`)}?valueInputOption=RAW`, {
+    method: 'PUT',
+    body: { values: [DRAWING_HEADER] },
+  })
+}
+
+/** Appends a stroke, creating the `_board` tab first if this is the Sheet's first one. */
+export async function appendStroke(sheetId: string, stroke: Stroke, eps: number): Promise<void> {
+  const row = [stroke.id, 'stroke', encodeStroke(stroke, eps)]
+  const url = `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${DRAWING_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
+  try {
+    await api(url, { method: 'POST', body: { values: [row] } })
+  } catch (e) {
+    if (!isMissingTab(e)) throw e
+    await createDrawingTab(sheetId)
+    await api(url, { method: 'POST', body: { values: [row] } })
+  }
+}
+
+/** Deletes the rows of the given strokes (found by id). Strokes already gone are ignored. */
+export async function deleteStrokes(sheetId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const id = encodeURIComponent(sheetId)
+  let res: { values?: unknown[][] }
+  try {
+    res = (await api(`${API}/${id}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`)) as typeof res
+  } catch (e) {
+    if (isMissingTab(e)) return
+    throw e
+  }
+  const wanted = new Set(ids)
+  const rows: number[] = [] // 0-based row indexes
+  ;(res.values ?? []).forEach((r, i) => {
+    if (i > 0 && wanted.has(String(r[0] ?? ''))) rows.push(i)
+  })
+  if (rows.length === 0) return
+  const meta = (await api(`${API}/${id}?fields=sheets.properties(sheetId,title)`)) as {
+    sheets?: { properties: { sheetId: number; title: string } }[]
+  }
+  const gid = meta.sheets?.find((s) => s.properties.title === DRAWING_TAB)?.properties.sheetId
+  if (gid === undefined) return
+  // Bottom-up, so deleting one row does not shift the indexes of the ones still to delete.
+  const requests = rows
+    .sort((a, b) => b - a)
+    .map((i) => ({ deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: i, endIndex: i + 1 } } }))
+  await api(`${API}/${id}:batchUpdate`, { method: 'POST', body: { requests } })
 }

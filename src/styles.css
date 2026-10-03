@@ -275,3 +275,37 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   .selection-bar .swatch { width: 26px; height: 26px; }
   .selection-bar button:not(.swatch) { padding: 6px 8px; }
 }
+
+.ink {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.ink path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.draw-bar button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.draw-bar .swatch.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+.draw-bar .dot { display: block; margin: 0 auto; background: currentColor; border-radius: 50%; }
+.draw-bar .dot.thin { width: 5px; height: 5px; }
+.draw-bar .dot.thick { width: 13px; height: 13px; }
+.draw-bar button { min-width: 36px; }
+
+/* The drawing bar has a dozen controls: let it wrap on narrow screens instead of overflowing. */
+.draw-bar { flex-wrap: wrap; justify-content: center; width: max-content; }
+@media (max-width: 520px) {
+  .draw-bar { width: auto; max-width: 300px; row-gap: 6px; }
+  .draw-bar .sep { display: none; }
+}
+
+.draw-bar .swatch { min-width: 0; }
+/* In edit mode the toolbar has many buttons: keep only the icons on narrow screens. */
+@media (max-width: 520px) {
+  .toolbar .label { display: none; }
+  .toolbar .brand { font-size: 0; }
+  .toolbar .brand::before { content: 'N'; font-size: 16px; }
+}

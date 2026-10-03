@@ -1,4 +1,4 @@
-/** Contenu de la colonne `board` du Sheet (JSON). */
+/** Content of the `board` column of the Sheet (JSON). */
 export interface BoardInfo {
   x: number
   y: number
@@ -18,4 +18,15 @@ export interface Camera {
   x: number
   y: number
   zoom: number
+}
+
+/** A freehand stroke, in world coordinates. */
+export interface Stroke {
+  id: string
+  /** Ink color. */
+  c: string
+  /** Line width in world units. */
+  w: number
+  /** Flat list of points: x0, y0, x1, y1, ... */
+  p: number[]
 }

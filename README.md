@@ -22,7 +22,8 @@ In the repo: Settings → Pages → Source: **GitHub Actions**.
 - [x] Google sign-in + reading the Sheet (read-only, polls every 30s)
 - [x] Saving positions (debounced, by row id)
 - [x] Add note, color, rename, delete (Edit mode: tap a note to select it)
-- [ ] Drawing on the board
+- [x] Drawing on the board (pen, eraser, undo; strokes stored one per row in the `_board` tab)
+- [x] Two-finger pan + zoom on touch screens
 
 ## Sheet format
 
@@ -42,3 +43,14 @@ A tab named `Tasks` with a header row. Columns are matched by name (case-insensi
 - Scope: `drive.file` only. The app can only touch Sheets the user picks in the Google Picker.
 
 Override the built-in public IDs with `VITE_GOOGLE_CLIENT_ID` / `VITE_GOOGLE_API_KEY` if needed.
+
+## Drawing storage
+
+Strokes live in a tab named `_board` (created on the first stroke), one row per stroke:
+
+| id | type | data |
+|----|------|------|
+| 3f9a1c2b | stroke | `{"c":"#E5484D","w":3,"p":[x0,y0,dx,dy,...]}` |
+
+`p` is the simplified polyline in board coordinates (first point absolute, then deltas).
+A Sheets cell holds 50 000 characters at most, so strokes are simplified until they fit.

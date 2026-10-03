@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Board } from './board/Board'
+import { Board, type Tool } from './board/Board'
+import { simplify } from './board/ink'
 import { fitCamera, screenToWorld, zoomAt } from './board/camera'
-import { NOTE_COLORS, NOTE_SIZE } from './constants'
+import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS } from './constants'
 import { demoTasks } from './data'
 import { AuthRequiredError, signIn } from './google/auth'
 import { pickSheet } from './google/picker'
 import {
   appendTask,
+  appendStroke,
   applySetupFix,
+  deleteStrokes,
   deleteTask,
+  fetchDrawing,
   fetchSheet,
   saveTasks,
   SheetError,
@@ -16,7 +20,7 @@ import {
   type TaskPatch,
 } from './google/sheets'
 import { rememberSheet } from './recent'
-import type { Camera, Task } from './types'
+import type { Camera, Stroke, Task } from './types'
 
 export type Source = { kind: 'demo' } | { kind: 'sheet'; id: string }
 
@@ -61,6 +65,16 @@ export function BoardView({ source }: { source: Source }) {
   const [status, setStatus] = useState<Status>({ kind: isDemo ? 'ready' : 'loading' })
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
   const [editable, setEditable] = useState(false)
+  const [strokes, setStrokes] = useState<Stroke[]>([])
+  const [tool, setTool] = useState<Tool>('none')
+  const [penColor, setPenColor] = useState(INK_COLORS[0])
+  const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS.thin)
+  const strokesRef = useRef(strokes)
+  strokesRef.current = strokes
+  /** Strokes drawn in this session, newest last, for undo. */
+  const undoStack = useRef<string[]>([])
+  /** Strokes erased during the current eraser gesture, deleted from the Sheet when it ends. */
+  const erased = useRef(new Set<string>())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [camera, setCamera] = useState<Camera>(() =>
@@ -81,10 +95,14 @@ export function BoardView({ source }: { source: Source }) {
       if (!sheetId) return
       if (!background) setStatus({ kind: 'loading' })
       try {
-        const data = await fetchSheet(sheetId)
+        const [data, drawing] = await Promise.all([
+          fetchSheet(sheetId),
+          fetchDrawing(sheetId).catch(() => null), // a drawing problem must not hide the notes
+        ])
         setTasks(data.tasks)
         setTitle(data.title)
-        setWarnings(data.warnings)
+        if (drawing) setStrokes(drawing)
+        setWarnings(drawing ? data.warnings : [...data.warnings, 'Could not load the drawing.'])
         setUpdatedAt(new Date())
         setStatus({ kind: 'ready' })
         rememberSheet({ id: sheetId, title: data.title })
@@ -274,10 +292,69 @@ export function BoardView({ source }: { source: Source }) {
     })
   }
 
+  const onStroke = (points: number[], width: number) => {
+    // Simplify at about one screen pixel: the drawing stays smooth and fits in a Sheet cell.
+    const eps = 1 / camera.zoom
+    const p = simplify(points, eps).map((v) => Math.round(v * 10) / 10)
+    const stroke: Stroke = { id: crypto.randomUUID().slice(0, 8), c: penColor, w: Math.round(width * 10) / 10, p }
+    setStrokes((ss) => [...ss, stroke])
+    undoStack.current.push(stroke.id)
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await appendStroke(sheetId, stroke, eps)
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        setStrokes((ss) => ss.filter((s) => s.id !== stroke.id))
+        fail(e)
+      }
+    })
+  }
+
+  const removeStrokes = (ids: string[]) => {
+    const gone = new Set(ids)
+    setStrokes((ss) => ss.filter((s) => !gone.has(s.id)))
+    undoStack.current = undoStack.current.filter((id) => !gone.has(id))
+  }
+
+  const deleteStrokeRows = (ids: string[]) => {
+    if (!sheetId || ids.length === 0) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        await deleteStrokes(sheetId, ids)
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        fail(e)
+        void load(true) // bring the strokes back: the Sheet still has them
+      }
+    })
+  }
+
+  const onErase = (ids: string[]) => {
+    ids.forEach((id) => erased.current.add(id))
+    removeStrokes(ids)
+  }
+
+  const onEraseEnd = () => {
+    const ids = [...erased.current]
+    erased.current.clear()
+    deleteStrokeRows(ids)
+  }
+
+  const undoStroke = () => {
+    const id = undoStack.current[undoStack.current.length - 1]
+    if (!id) return
+    removeStrokes([id])
+    deleteStrokeRows([id])
+  }
+
   const toggleEdit = async () => {
     if (editable) {
       setEditingId(null)
       setSelectedId(null)
+      setTool('none')
       await flush() // do not leave edit mode (which resumes polling) with unsaved changes
       setEditable(false)
       void load(true) // pick up what others changed while we were editing
@@ -315,6 +392,13 @@ export function BoardView({ source }: { source: Source }) {
         onSelect={setSelectedId}
         onRename={onRename}
         onRenameDone={() => setEditingId(null)}
+        strokes={strokes}
+        tool={editable ? tool : 'none'}
+        penColor={penColor}
+        penWidth={penWidth}
+        onStroke={onStroke}
+        onErase={onErase}
+        onEraseEnd={onEraseEnd}
         camera={camera}
         setCamera={setCamera}
       />
@@ -326,11 +410,30 @@ export function BoardView({ source }: { source: Source }) {
         {title && <span className="sheet-title">{title}</span>}
         <span className="sep" />
         <button className={editable ? 'primary' : ''} onClick={() => void toggleEdit()}>
-          {editable ? '✓ Done' : '✎ Edit'}
+          {editable ? (
+            <>
+              ✓<span className="label"> Done</span>
+            </>
+          ) : (
+            '✎ Edit'
+          )}
         </button>
         {editable && (
           <button onClick={addNote} aria-label="Add note">
-            ＋ Note
+            ＋<span className="label"> Note</span>
+          </button>
+        )}
+        {editable && (
+          <button
+            className={tool !== 'none' ? 'primary' : ''}
+            aria-label="Draw"
+            onClick={() => {
+              setSelectedId(null)
+              setEditingId(null)
+              setTool((t) => (t === 'none' ? 'pen' : 'none'))
+            }}
+          >
+            ✏<span className="label"> Draw</span>
           </button>
         )}
         {sheetId && (
@@ -348,7 +451,7 @@ export function BoardView({ source }: { source: Source }) {
         <button onClick={() => zoomTo(1.25)} aria-label="Zoom in">+</button>
       </div>
 
-      {editable && selectedId && !editingId && (
+      {editable && tool === 'none' && selectedId && !editingId && (
         <div className="selection-bar">
           {NOTE_COLORS.map((c) => (
             <button
@@ -363,6 +466,55 @@ export function BoardView({ source }: { source: Source }) {
           <button onClick={() => setEditingId(selectedId)}>✎ Rename</button>
           <button className="danger" onClick={deleteSelected}>
             🗑 Delete
+          </button>
+        </div>
+      )}
+
+      {editable && tool !== 'none' && (
+        <div className="selection-bar draw-bar">
+          <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} aria-label="Pen">
+            ✏
+          </button>
+          <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} aria-label="Eraser">
+            ⌫
+          </button>
+          <span className="sep" />
+          {INK_COLORS.map((c) => (
+            <button
+              key={c}
+              className={`swatch${c === penColor && tool === 'pen' ? ' on' : ''}`}
+              style={{ background: c }}
+              aria-label={`Ink ${c}`}
+              onClick={() => {
+                setPenColor(c)
+                setTool('pen')
+              }}
+            />
+          ))}
+          <span className="sep" />
+          <button
+            className={penWidth === PEN_WIDTHS.thin ? 'active' : ''}
+            aria-label="Thin"
+            onClick={() => {
+              setPenWidth(PEN_WIDTHS.thin)
+              setTool('pen')
+            }}
+          >
+            <span className="dot thin" />
+          </button>
+          <button
+            className={penWidth === PEN_WIDTHS.thick ? 'active' : ''}
+            aria-label="Thick"
+            onClick={() => {
+              setPenWidth(PEN_WIDTHS.thick)
+              setTool('pen')
+            }}
+          >
+            <span className="dot thick" />
+          </button>
+          <span className="sep" />
+          <button aria-label="Undo" onClick={undoStroke}>
+            ↶
           </button>
         </div>
       )}
