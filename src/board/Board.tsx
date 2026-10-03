@@ -473,19 +473,19 @@ export function Board({
       const a = byId.get(link.from)
       const b = byId.get(link.to)
       const seg = a && b ? segmentBetween(a, b) : null
-      return a && b && seg && !noteView(a).hidden && !noteView(b).hidden && !stack.tucked.has(a.id) && !stack.tucked.has(b.id)
-        ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim }]
+      return a && b && seg && !stack.tucked.has(a.id) && !stack.tucked.has(b.id)
+        ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim || noteView(a).hidden || noteView(b).hidden }]
         : []
     })
     // Spread-open stacks: a dotted line from each parent to its sub-tasks (derived, never stored).
     for (const [parentId, kids] of stack.kids) {
       const a = byId.get(parentId)
-      if (!a || !stack.open.has(parentId) || stack.tucked.has(parentId) || noteView(a).hidden) continue
+      if (!a || !stack.open.has(parentId) || stack.tucked.has(parentId)) continue
       for (const kid of kids) {
         const b = byId.get(kid)
         const seg = b ? segmentBetween(a, b) : null
-        if (!b || !seg || stack.tucked.has(kid) || noteView(b).hidden) continue
-        explicit.push({ link: { id: `stack:${kid}`, from: parentId, to: kid, arrow: 'none' }, seg, dim: noteView(a).dim || noteView(b).dim })
+        if (!b || !seg || stack.tucked.has(kid)) continue
+        explicit.push({ link: { id: `stack:${kid}`, from: parentId, to: kid, arrow: 'none' }, seg, dim: noteView(a).dim || noteView(b).dim || noteView(a).hidden || noteView(b).hidden })
       }
     }
     return explicit
@@ -571,7 +571,6 @@ export function Board({
         })}
         {tasks.map((t) => {
           const v = noteView(t)
-          if (v.hidden) return null
           const anchor = stack.tucked.get(t.id)
           const home = anchor ? tasks.find((n) => n.id === anchor)?.board : undefined
           const kids = stack.kids.get(t.id)?.length ?? 0
@@ -579,6 +578,7 @@ export function Board({
           <StickyNote
             key={t.id}
             chips={v.chips}
+            ghost={v.hidden}
             tuckedInto={home ?? null}
             subtasks={kids}
             dropTarget={stack.dropTarget === t.id}

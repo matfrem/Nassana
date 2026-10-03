@@ -100,7 +100,7 @@ The **◐** button:
   Sheet), the zone of that name (status), the Sheet's own cell fill or conditional format, a tone for priorities, then a palette.
   The Sheets API cannot read the colors of dropdown *chips*, which is why you pick them here. A fill shared by several values of a
   column (a row or banding color) is ignored.
-- **Tap a legend item to hide that value** (every note with it disappears, with its links); tap again to show it. Hidden values add up,
+- **Tap a legend item to hide that value** (every note with it turns into a faint grey shape that can't be touched, so its spot stays taken; its links fade); tap again to show it. Hidden values add up,
   stay when you switch the "color by" column (those of other columns are summed up in one pill per column, e.g. `Status: 2 hidden ✕`, plus **Show all**) and are
   remembered on this device.
 - **Tap a pill on a note** to show only that value (`Only Priority: A ✕` clears it).

@@ -744,3 +744,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 @media (prefers-reduced-motion: reduce) {
   .note, .note.gliding, .note.tucked { transition: none; }
 }
+
+/* hidden by the legend: a grey ghost keeps the spot taken */
+.note.ghost { background: #9ca3af !important; opacity: 0.22; box-shadow: none; pointer-events: none; }
+.note.ghost > * { visibility: hidden; }

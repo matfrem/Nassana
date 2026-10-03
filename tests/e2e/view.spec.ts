@@ -8,7 +8,7 @@ async function colorBy(page: Page, name: string | RegExp) {
   await viewMenu(page)
   await menuItem(page, name).click()
 }
-const visibleTitles = (page: Page) => page.locator('.note .note-title').allTextContents().then((t) => t.sort())
+const visibleTitles = (page: Page) => page.locator('.note:not(.ghost) .note-title').allTextContents().then((t) => t.sort())
 const legend = (page: Page) => page.locator('.viewbar .legend-item button')
 const bg = (page: Page, title: string) => note(page, title).evaluate((e) => (e as HTMLElement).style.background)
 
@@ -100,6 +100,7 @@ test('tapping a legend item hides/shows its value; hidden values add up, survive
   expect(await visibleTitles(page)).toEqual(['Alpha', 'Delta', 'Epsilon', 'Loose'])
   await toggle('To Do')
   expect(await visibleTitles(page)).toEqual(['Delta', 'Loose'])
+  await expect(page.locator('.note.ghost')).toHaveCount(4) // the hidden ones stay as grey shapes: their spot is not free
   await toggle('Done') // shown again; To Do stays hidden
   expect(await visibleTitles(page)).toEqual(['Beta', 'Delta', 'Gamma', 'Loose'])
 

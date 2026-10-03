@@ -23,6 +23,8 @@ interface Props {
   onRenameDone: () => void
   /** Pills built from the `#` columns. */
   chips: Chip[]
+  /** Hidden by the legend: only a grey shape remains, so nobody drops another note on its spot. */
+  ghost: boolean
   /** Filtered out: shown faded. */
   dim: boolean
   /** Background color to show (the manual color, or one derived from a property). */
@@ -63,6 +65,7 @@ export function StickyNote({
   onRename,
   onRenameDone,
   chips,
+  ghost,
   dim,
   color,
   ink,
@@ -150,7 +153,7 @@ export function StickyNote({
   return (
     <div
       data-note-id={task.id}
-      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}${dim ? ' dim' : ''}${lifted ? ' lifted' : ''}${tuckedInto ? ' tucked' : ''}${dropTarget ? ' drop-target' : ''}${gliding ? ' gliding' : ''}${task.parent ? ' child' : ''}`}
+      className={`note${editable ? ' editable' : ''}${selected ? ' selected' : ''}${dim ? ' dim' : ''}${lifted ? ' lifted' : ''}${tuckedInto ? ' tucked' : ''}${dropTarget ? ' drop-target' : ''}${ghost ? ' ghost' : ''}${gliding ? ' gliding' : ''}${task.parent ? ' child' : ''}`}
       style={{
         transform: `translate(${(tuckedInto ?? task.board).x}px, ${(tuckedInto ?? task.board).y}px)`,
         // tilt and scale turn around the note's own centre (they are applied outside the translation)

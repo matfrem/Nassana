@@ -295,6 +295,7 @@ export function BoardView({ source }: { source: Source }) {
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const dwell = useRef<{ target: string | null; armed: string | null; timer?: ReturnType<typeof setTimeout> }>({ target: null, armed: null })
   const tuckedRef = useRef<Map<string, string>>(new Map())
+  const hiddenRef = useRef<(t: Task) => boolean>(() => false)
   const onMove = useCallback((id: string, x: number, y: number) => {
     setDraggingId(id)
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, board: { ...t.board, x, y } } : t)))
@@ -304,6 +305,7 @@ export function BoardView({ source }: { source: Source }) {
       (t) =>
         t.id !== id &&
         !tuckedRef.current.has(t.id) &&
+        !hiddenRef.current(t) &&
         cx >= t.board.x && cx <= t.board.x + NOTE_SIZE && cy >= t.board.y && cy <= t.board.y + NOTE_SIZE &&
         parentsRef.current[id] !== t.id &&
         !wouldCycle(parentsRef.current, id, t.id),
@@ -1134,6 +1136,7 @@ export function BoardView({ source }: { source: Source }) {
     [shownFields, filter, colorScheme, hidden],
   )
 
+  hiddenRef.current = (t) => noteView(t).hidden
   const saveHidden = (next: HideRule[]) => {
     setHidden(next)
     saveView(sheetId, { hidden: next })
