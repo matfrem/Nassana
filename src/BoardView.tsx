@@ -3,7 +3,7 @@ import { Board, type StrokeRef, type Tool } from './board/Board'
 import { encodeNoteDrawing, encodeStroke, simplify } from './board/ink'
 import { ARROW_MODES, encodeLink } from './board/links'
 import { childrenOf, cleanParents, tucked as tuckedNotes, wouldCycle, type Parents } from './board/stacks'
-import { applyZones, centerOf, encodeZone, notesInZone, zoneAt } from './board/zones'
+import { applyZones, centerOf, encodeZone, notesInZone, zoneAt, zoneLabel } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE_HEADER } from './constants'
 import { demoTasks } from './data'
@@ -532,7 +532,19 @@ export function BoardView({ source }: { source: Source }) {
     if (z) syncStatuses(z, zonesRef.current)
   }
 
-  const onZoneRename = (id: string, name: string) => {
+  /** Edits the header text only: the status given to notes is unchanged. */
+  const onZoneTitle = (id: string, title: string) => {
+    const z = zonesRef.current.find((zz) => zz.id === id)
+    if (!z) return
+    // Committing the status text untouched (shown as the title when there is none) must not turn it into a real title.
+    const next = !title.trim() || (!z.title && title.trim() === z.name.trim()) ? undefined : title
+    if (next === z.title) return
+    patchZone(id, { title: next })
+    markZoneDirty(id)
+  }
+
+  /** The status this zone gives to the notes in it; every note already inside takes it. */
+  const onZoneStatus = (id: string, name: string) => {
     const z = zonesRef.current.find((zz) => zz.id === id)
     if (!z || z.name === name) return
     const renamed = { ...z, name }
@@ -540,6 +552,11 @@ export function BoardView({ source }: { source: Source }) {
     setZones(all)
     markZoneDirty(id)
     syncStatuses(renamed, all)
+  }
+
+  const onZoneTitleSize = (id: string, titleSize: number) => {
+    patchZone(id, { titleSize })
+    markZoneDirty(id)
   }
 
   const onZoneColor = (color: string, id = selectedZoneId) => {
@@ -574,7 +591,7 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const onZoneDraw = (rect: { x: number; y: number; w: number; h: number }) => {
-    const [z] = createZones([{ ...rect, name: 'New zone', color: ZONE_COLORS[1] }])
+    const [z] = createZones([{ ...rect, name: '', color: ZONE_COLORS[1] }]) // no status yet: it may just group notes
     setTool('none')
     setSelectedId(null)
     setSelectedZoneId(z.id)
@@ -661,7 +678,7 @@ export function BoardView({ source }: { source: Source }) {
   const deleteZone = (id: string | null = selectedZoneId) => {
     const zone = zones.find((z) => z.id === id)
     if (!zone) return
-    if (!window.confirm(`Delete the zone "${zone.name}"? Its notes stay where they are.`)) return
+    if (!window.confirm(`Delete the zone "${zoneLabel(zone) || 'Untitled zone'}"? Its notes stay where they are.`)) return
     setZones((zs) => zs.filter((z) => z.id !== zone.id))
     setSelectedZoneId(null)
     setZoneDetailId(null)
@@ -1241,7 +1258,7 @@ export function BoardView({ source }: { source: Source }) {
         onZoneDragEnd={onZoneDragEnd}
         onZoneResize={(id, w, h) => patchZone(id, { w, h })}
         onZoneResizeEnd={onZoneResizeEnd}
-        onZoneRename={onZoneRename}
+        onZoneRename={onZoneTitle}
         onZoneRenameDone={() => setEditingZoneId(null)}
         onZoneDraw={onZoneDraw}
         selectedStroke={selectedStroke}
@@ -1583,7 +1600,9 @@ export function BoardView({ source }: { source: Source }) {
           zone={zones.find((z) => z.id === zoneDetailId)!}
           count={notesInZone(zones, zones.find((z) => z.id === zoneDetailId)!, tasks).length}
           onClose={() => setZoneDetailId(null)}
-          onName={onZoneRename}
+          onTitle={onZoneTitle}
+          onStatus={onZoneStatus}
+          onTitleSize={onZoneTitleSize}
           onColor={(id, c) => onZoneColor(c, id)}
           onLimit={onZoneLimit}
           onDelete={deleteZone}

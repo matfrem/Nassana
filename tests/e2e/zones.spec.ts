@@ -54,9 +54,18 @@ test('a zone is configured in its details: name, color, limit; the counter react
 
   await panel.getByLabel('Work-in-progress limit').fill('1')
   await expect(page.locator('.zone-count.over')).toHaveText('2/1') // over the limit: red
-  await panel.getByLabel('Zone name').fill('Finished')
+  await panel.getByLabel('Auto-assign status').fill('Finished')
   await expect.poll(() => JSON.parse(sheet.board('zone')[2])).toMatchObject({ name: 'Finished', limit: 1 })
   await expect.poll(() => [sheet.cell('Tasks', 'C2'), sheet.cell('Tasks', 'C3')]).toEqual(['Finished', 'Finished']) // the notes inside follow the rename
+
+  await expect(page.locator('.zone-header', { hasText: 'Finished' })).toBeVisible() // no title: the header shows the status
+  await panel.getByLabel('Zone title').fill('Shipped!')
+  await expect(page.locator('.zone-header', { hasText: 'Shipped!' })).toBeVisible()
+  await expect.poll(() => JSON.parse(sheet.board('zone')[2])).toMatchObject({ name: 'Finished', title: 'Shipped!' }) // status untouched
+  await panel.getByLabel('Title size').fill('50')
+  await expect.poll(() => JSON.parse(sheet.board('zone')[2]).titleSize).toBe(50)
+  await panel.getByLabel('Zone title').fill('')
+  await expect(page.locator('.zone-header', { hasText: 'Finished' })).toBeVisible() // back to the status
 
   await panel.getByRole('button', { name: /Delete zone/ }).click()
   await expect.poll(() => sheet.board('zone')).toHaveLength(2)
@@ -100,4 +109,16 @@ test('creates one zone per status and moves the notes into them', async ({ page 
   expect(await notePos(page, 'Loose')).toEqual([400, -100]) // no status: stays where it was
   await expect.poll(() => sheet.board('zone')).toHaveLength(3)
   await expect.poll(() => JSON.parse(String(sheet.cell('Tasks', 'D2'))).y).toBeGreaterThan(0) // moved notes are saved
+})
+
+test('a zone drawn from scratch has no status: its title is edited and notes dropped in it keep theirs', async ({ page }) => {
+  const sheet = zonesSheet([['p', 'Plain', 'Todo', board(-900, 300)]])
+  await openBoard(page, sheet)
+  await startEditing(page)
+  await page.getByRole('button', { name: 'Zone' }).first().click()
+  await drag(page, { x: 700, y: 300 }, { x: 1000, y: 600 })
+  await page.keyboard.type('Group A')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.zone-header', { hasText: 'Group A' })).toBeVisible()
+  await expect.poll(() => sheet.board('zone').map((z) => JSON.parse(z)).find((z) => z.title === 'Group A')).toMatchObject({ name: '', title: 'Group A' })
 })

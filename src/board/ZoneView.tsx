@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { ZONE_HEADER, ZONE_MIN_SIZE } from '../constants'
+import { ZONE_MIN_SIZE, ZONE_TITLE_SIZE } from '../constants'
+import { headerHeight, zoneLabel } from './zones'
 import type { Zone } from '../types'
 
 const TAP_SLOP = 4
@@ -140,7 +141,7 @@ export function ZoneView({
   }
 
   const commit = (value: string) => {
-    if (!cancelled.current) onRename(zone.id, value.trim() || zone.name)
+    if (!cancelled.current) onRename(zone.id, value.trim())
     onRenameDone()
   }
 
@@ -157,7 +158,7 @@ export function ZoneView({
     >
       <div
         className={`zone-header${editable ? ' editable' : ''}`}
-        style={{ height: ZONE_HEADER, background: zone.color + '55' }}
+        style={{ height: headerHeight(zone), fontSize: zone.titleSize ?? ZONE_TITLE_SIZE, background: zone.color + '55' }}
         onPointerDown={headerDown}
         onPointerMove={headerMove}
         onPointerUp={headerEnd}
@@ -166,7 +167,8 @@ export function ZoneView({
         {editing ? (
           <input
             ref={input}
-            defaultValue={zone.name}
+            defaultValue={zone.title ?? zone.name}
+            placeholder="Title"
             maxLength={60}
             onBlur={(e) => commit(e.currentTarget.value)}
             onKeyDown={(e) => {
@@ -180,7 +182,7 @@ export function ZoneView({
           />
         ) : (
           <>
-            {zone.name || 'Untitled zone'}
+            {zoneLabel(zone) || 'Untitled zone'}
             <span className={`zone-count${zone.limit && count > zone.limit ? ' over' : ''}`}>
               {zone.limit ? `${count}/${zone.limit}` : count}
             </span>

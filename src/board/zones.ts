@@ -1,8 +1,14 @@
-import { NOTE_SIZE, ZONE_HEADER } from '../constants'
+import { NOTE_SIZE, ZONE_HEADER, ZONE_TITLE_SIZE, ZONE_TITLE_SIZES } from '../constants'
 import type { Task, Zone } from '../types'
 
 const norm = (s: string) => s.trim().toLowerCase()
 const round = (n: number) => Math.round(n)
+
+/** What the header shows: the title, or the auto-assign status when there is no title. */
+export const zoneLabel = (z: Zone) => z.title?.trim() || z.name.trim()
+
+/** Height of the title strip: grows with the title size. */
+export const headerHeight = (z: Zone) => Math.max(ZONE_HEADER, Math.round((z.titleSize ?? ZONE_TITLE_SIZE) * 1.85))
 
 export const centerOf = (t: Task) => ({ x: t.board.x + NOTE_SIZE / 2, y: t.board.y + NOTE_SIZE / 2 })
 
@@ -62,7 +68,7 @@ export function applyZones(tasks: Task[], zones: Zone[]): Task[] {
     const cols = Math.max(1, Math.floor((z.w - pad * 2 + gap) / step))
     for (let k = 0; ; k++) {
       const x = z.x + pad + (k % cols) * step
-      const y = z.y + ZONE_HEADER + pad + Math.floor(k / cols) * step
+      const y = z.y + headerHeight(z) + pad + Math.floor(k / cols) * step
       const free = occupied.every((o) => Math.abs(o.x - x) >= NOTE_SIZE || Math.abs(o.y - y) >= NOTE_SIZE)
       if (free) {
         occupied.push({ x, y, color: t.board.color })
@@ -75,7 +81,7 @@ export function applyZones(tasks: Task[], zones: Zone[]): Task[] {
 const HEX6 = /^#[0-9a-f]{6}$/i
 
 export const encodeZone = (z: Zone) =>
-  JSON.stringify({ x: round(z.x), y: round(z.y), w: round(z.w), h: round(z.h), name: z.name, color: z.color, limit: z.limit })
+  JSON.stringify({ x: round(z.x), y: round(z.y), w: round(z.w), h: round(z.h), name: z.name, title: z.title || undefined, titleSize: z.titleSize, color: z.color, limit: z.limit })
 
 export function decodeZone(id: string, raw: unknown): Zone | null {
   if (typeof raw !== 'string') return null
@@ -89,6 +95,11 @@ export function decodeZone(id: string, raw: unknown): Zone | null {
       w: o.w as number,
       h: o.h as number,
       name: typeof o.name === 'string' ? o.name : '',
+      title: typeof o.title === 'string' && o.title.trim() ? o.title : undefined,
+      titleSize:
+        Number.isFinite(o.titleSize) && (o.titleSize as number) >= ZONE_TITLE_SIZES.min && (o.titleSize as number) <= ZONE_TITLE_SIZES.max
+          ? Math.round(o.titleSize as number)
+          : undefined,
       color: typeof o.color === 'string' && HEX6.test(o.color) ? o.color : '#94A3B8',
       limit: Number.isInteger(o.limit) && (o.limit as number) > 0 ? (o.limit as number) : undefined,
     }

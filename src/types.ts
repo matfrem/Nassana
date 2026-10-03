@@ -49,8 +49,15 @@ export interface Zone {
   y: number
   w: number
   h: number
-  /** Doubles as the status value. */
+  /**
+   * The status this zone auto-assigns to notes dropped in it (empty: the zone only groups notes).
+   * Named `name` for historical reasons: older zones used it as their title too.
+   */
   name: string
+  /** Shown in the zone's header; when empty, the auto-assign status is shown instead. */
+  title?: string
+  /** Header font size in world units (default 26). */
+  titleSize?: number
   color: string
   /** Work-in-progress limit: the counter turns red above it. */
   limit?: number

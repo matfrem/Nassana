@@ -49,6 +49,9 @@ in the details panel. `title` and `description` are fixed.
 
 ## Zones: a scrum board
 
+A zone has a **title** (and a title size), and an optional **auto-assign status**. With a status, notes dropped in it get that status; with none (the default for a zone you draw yourself) it just groups notes. When the title is empty, the status is shown as the title. Edit all of it in the zone's details (double-tap its header); tapping the header text renames the title.
+
+
 **▭ Zone** then drag on the board to draw a rectangle. A zone's name *is* the status:
 
 - Dropping a note in a zone sets the note's `status` to the zone's name (outside every zone, the status is kept).

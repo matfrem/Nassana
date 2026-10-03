@@ -50,7 +50,7 @@ Everything that is not a task: one row per item, header `id | type | data`, `dat
 | `type` | `id` | `data` |
 |---|---|---|
 | `stroke` | 8 hex | `{"c","w","p"}` as above, in **board coordinates**. |
-| `zone` | 8 hex | `{"x","y","w","h","name","color","limit"}`. `name` is also the status; `limit` (optional) is the work-in-progress limit; `color` is `#rrggbb`. |
+| `zone` | 8 hex | `{"x","y","w","h","name","title","titleSize","color","limit"}`. `name` is the **auto-assign status** (empty: the zone only groups notes); `title` (optional) is shown in the header, falling back to `name`; `titleSize` (optional, 14–80) is the header font size; `limit` (optional) is the work-in-progress limit; `color` is `#rrggbb`. |
 | `link` | 8 hex | `{"from":"<task id>","to":"<task id>","arrow":"one"}`; `arrow` is `one` (head at `to`), `both` or `none`. Older rows with a boolean are still read (`true` = `one`, `false` = `none`). |
 | `open` | `open:<parent id>` | `1`. The stack of that note is spread open; no row = tucked away (shared by everyone). |
 | `color` | `color:<column key>\|<value>` | `{"key":"priority#","value":"a","color":"#FF8800"}`: the color picked in the legend for one value of a column; `key` is the lowercased header (or `status`), `value` is lowercased and trimmed. |

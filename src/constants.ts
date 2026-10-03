@@ -14,3 +14,5 @@ export const ZONE_HEADER = 48
 export const ZONE_MIN_SIZE = 140
 /** Spacing of the background dots, in world units: dragged notes snap their top-left corner onto them. */
 export const GRID = 40
+export const ZONE_TITLE_SIZE = 26
+export const ZONE_TITLE_SIZES = { min: 14, max: 80 } as const

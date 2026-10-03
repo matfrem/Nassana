@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { NOTE_SIZE } from '../constants'
 import type { Task, Zone } from '../types'
-import { applyZones, decodeZone, encodeZone, notesInZone, zoneAt, zoneOfNote } from './zones'
+import { zoneLabel, headerHeight, applyZones, decodeZone, encodeZone, notesInZone, zoneAt, zoneOfNote } from './zones'
 
 const zone = (id: string, name: string, x: number, y = 0, w = 440, h = 400): Zone => ({ id, name, x, y, w, h, color: '#60A5FA' })
 const task = (id: string, x: number, y: number, status?: string, autoPlaced = false): Task => ({
@@ -100,5 +100,22 @@ describe('zone encoding', () => {
   it('rejects zones without a size', () => {
     expect(decodeZone('z', '{"x":0,"y":0,"w":0,"h":10}')).toBeNull()
     expect(decodeZone('z', 'nope')).toBeNull()
+  })
+})
+
+describe('zone titles', () => {
+  const z = { id: 'z', x: 0, y: 0, w: 300, h: 300, name: 'Done', color: '#94A3B8' }
+  it('shows the title, or the status when there is none', () => {
+    expect(zoneLabel(z)).toBe('Done')
+    expect(zoneLabel({ ...z, title: 'Shipped' })).toBe('Shipped')
+    expect(zoneLabel({ ...z, name: '', title: '' })).toBe('')
+  })
+  it('round-trips title and size, and ignores nonsense sizes', () => {
+    const t = { ...z, title: 'Shipped', titleSize: 40 }
+    expect(decodeZone('z', encodeZone(t))).toEqual(t)
+    expect(decodeZone('z', JSON.stringify({ x: 0, y: 0, w: 9, h: 9, name: '', titleSize: 5000 }))?.titleSize).toBeUndefined()
+  })
+  it('a bigger title makes a taller header', () => {
+    expect(headerHeight({ ...z, titleSize: 60 })).toBeGreaterThan(headerHeight(z))
   })
 })
