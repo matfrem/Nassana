@@ -21,6 +21,8 @@ export interface StrokeRef {
 
 interface Props {
   tasks: Task[]
+  /** Draw the links between notes (the lines to sub-tasks are always drawn). */
+  showLinks: boolean
   editable: boolean
   onMove: (id: string, x: number, y: number) => void
   onMoveEnd: (id: string) => void
@@ -88,6 +90,7 @@ type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move' | 'lin
 
 export function Board({
   tasks,
+  showLinks,
   editable,
   onMove,
   onMoveEnd,
@@ -469,7 +472,7 @@ export function Board({
   const level = camera.zoom < 0.45 ? 0 : camera.zoom < 0.8 ? 1 : 2
   const linkItems = useMemo<LinkItem[]>(() => {
     const byId = new Map(tasks.map((t) => [t.id, t]))
-    const explicit = links.flatMap((link) => {
+    const explicit = (showLinks ? links : []).flatMap((link) => {
       const a = byId.get(link.from)
       const b = byId.get(link.to)
       const seg = a && b ? segmentBetween(a, b) : null
@@ -489,7 +492,7 @@ export function Board({
       }
     }
     return explicit
-  }, [links, tasks, noteView, stack])
+  }, [links, showLinks, tasks, noteView, stack])
 
   const counts = useMemo(() => {
     const m = new Map<string, number>()

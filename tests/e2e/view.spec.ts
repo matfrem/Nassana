@@ -204,3 +204,33 @@ test('the color picker offers the board colors, remembers recent picks and appli
   await page.getByRole('button', { name: 'More colors' }).click()
   await expect(page.getByRole('dialog').locator('section', { hasText: 'Recent' }).locator('.cp-swatch').first()).toHaveAttribute('aria-label', 'Color #123456')
 })
+
+test('Cancel in the color picker puts the previous color back', async ({ page }) => {
+  const sheet = new FakeSheet({ Tasks: [['id', 'title', 'board'], ['a', 'Alpha', board(0, 0, '#FFADAD')]] })
+  await openBoard(page, sheet)
+  await startEditing(page)
+  const c = await noteCenter(page, 'Alpha')
+  await page.mouse.click(c.x - 40, c.y - 40)
+  await page.getByRole('button', { name: 'More colors' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Note color' })
+  await expect(dialog.locator('.cp-swatches.grid .cp-swatch')).toHaveCount(80) // the Google Sheets palette
+  await dialog.getByRole('button', { name: 'Color #ff9900' }).click()
+  await expect.poll(() => JSON.parse(String(sheet.cell('Tasks', 'C2'))).color).toBe('#ff9900')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect.poll(() => JSON.parse(String(sheet.cell('Tasks', 'C2'))).color).toBe('#FFADAD')
+})
+
+test('"Show links" in the view menu hides the dotted links and is remembered', async ({ page }) => {
+  const sheet = new FakeSheet({
+    Tasks: [['id', 'title', 'board'], ['a', 'Alpha', board(0, 0)], ['b', 'Beta', board(300, 0)]],
+    _board: [['id', 'type', 'data'], ['l1', 'link', '{"from":"a","to":"b","arrow":"one"}']],
+  })
+  await openBoard(page, sheet)
+  await expect(page.locator('.link-line')).toHaveCount(1)
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByLabel('Show links').uncheck()
+  await expect(page.locator('.link-line')).toHaveCount(0)
+  await page.reload()
+  await page.locator('.note').first().waitFor()
+  await expect(page.locator('.link-line')).toHaveCount(0)
+})

@@ -770,3 +770,10 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
 .more-colors { font-size: 16px; }
 .cfg-opt .swatch-btn { width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 2px solid rgba(128, 128, 128, 0.5); cursor: pointer; }
+
+/* sub-task lines: solid and thinner than the dotted links, so the two read differently */
+.link.stack .link-line { stroke-dasharray: none; stroke-width: max(3px, calc(2.5px / var(--zoom, 1))); stroke-linecap: butt; opacity: 0.8; }
+.menu .menu-check { display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 14px; }
+.cp-swatches.grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.cp-swatches.grid .cp-swatch { width: auto; aspect-ratio: 1; border-radius: 4px; border-width: 1px; }
+.cp-swatches.grid .cp-swatch.on { outline-offset: 1px; }

@@ -15,16 +15,16 @@ const rule = { key: 'status', raw: 'done', text: 'Done', label: 'Status' }
 
 describe('view state (kept per browser and per Sheet)', () => {
   it('starts empty', () => {
-    expect(loadView('S')).toEqual({ colorBy: '', hidden: [], only: null, camera: null })
-    expect(loadView(null)).toEqual({ colorBy: '', hidden: [], only: null, camera: null })
+    expect(loadView('S')).toEqual({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true })
+    expect(loadView(null)).toEqual({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true })
   })
 
   it('merges what is saved, per Sheet', () => {
     saveView('S', { colorBy: 'status' })
     saveView('S', { hidden: [rule] })
-    saveView('S', { camera: { x: 1, y: 2, zoom: 0.5 } })
+    saveView('S', { camera: { x: 1, y: 2, zoom: 0.5 }, showLinks: true })
     saveView('OTHER', { colorBy: 'pole' })
-    expect(loadView('S')).toEqual({ colorBy: 'status', hidden: [rule], only: null, camera: { x: 1, y: 2, zoom: 0.5 } })
+    expect(loadView('S')).toEqual({ colorBy: 'status', hidden: [rule], only: null, camera: { x: 1, y: 2, zoom: 0.5 }, showLinks: true })
     expect(loadView('OTHER').colorBy).toBe('pole')
   })
 
@@ -36,7 +36,7 @@ describe('view state (kept per browser and per Sheet)', () => {
 
   it('ignores corrupted data instead of crashing', () => {
     store['nassana.view.S'] = JSON.stringify({ colorBy: 3, hidden: [{ key: 1 }, rule], only: 'x', camera: { x: 'a' } })
-    expect(loadView('S')).toEqual({ colorBy: '', hidden: [rule], only: null, camera: null })
+    expect(loadView('S')).toEqual({ colorBy: '', hidden: [rule], only: null, camera: null, showLinks: true })
     store['nassana.view.T'] = '{not json'
     expect(loadView('T').hidden).toEqual([])
   })
@@ -52,5 +52,10 @@ describe('view state (kept per browser and per Sheet)', () => {
     })
     expect(() => saveView('S', { colorBy: 'x' })).not.toThrow()
     expect(loadView('S').colorBy).toBe('')
+  })
+  it('remembers hidden links', () => {
+    saveView('S', { showLinks: false })
+    expect(loadView('S').showLinks).toBe(false)
+    expect(loadView('Other').showLinks).toBe(true)
   })
 })

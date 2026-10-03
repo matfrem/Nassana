@@ -33,7 +33,7 @@ export const LinksLayer = memo(function LinksLayer({
   return (
     <svg className="links" width={1} height={1}>
       {items.map(({ link, seg, dim }) => (
-        <g key={link.id} className={`link${dim ? ' dim' : ''}`}>
+        <g key={link.id} className={`link${link.id.startsWith('stack:') ? ' stack' : ''}${dim ? ' dim' : ''}`}>
           {link.id === selectedId && <line className="link-halo" x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />}
           <line className="link-line" x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
           {link.arrow !== 'none' && <polygon className="link-arrow" points={arrowHead(seg, head)} />}

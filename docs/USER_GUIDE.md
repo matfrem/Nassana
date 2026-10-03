@@ -86,7 +86,7 @@ Links are not drawn between overlapping notes, and a link to a hidden note is hi
 ## Stacks: tasks and sub-tasks
 
 - A note with sub-tasks shows other post-its peeking out from under it, slightly tilted, and a badge `▤ 3` (number of sub-tasks).
-- Tap the badge: the sub-tasks slide out from under the stack and appear around it, joined to it by dotted lines (badge `▾ 3`). Tap again: they slide back under it and disappear. Sub-tasks can have sub-tasks (a tree): each level has its own badge.
+- Tap the badge: the sub-tasks slide out from under the stack and appear around it, joined to it by thin solid lines (badge `▾ 3`; dotted lines are the links you draw). Tap again: they slide back under it and disappear. Sub-tasks can have sub-tasks (a tree): each level has its own badge.
 - Make a sub-task: select a note → **＋ Sub-task**; or **Parent** in the details; or **drag a note over another one, hold half a second** (the target gets a dashed outline) and release. Loops are refused (a note can't go under its own sub-task).
 - **⇱ Unparent** (next to Duplicate / Delete) frees a sub-task; so does Parent = none in the details.
 - The link is stored in a `parent` column of the `Tasks` tab (added automatically). Sub-tasks are ordinary notes: move them anywhere, own status/zone/color/links. A tucked sub-task is hidden wherever it sits.
@@ -96,13 +96,13 @@ Links are not drawn between overlapping notes, and a link to a hidden note is hi
 
 ## Color picker
 
-The 🎨 button (next to the quick swatches of a note, a zone or the pen), the legend dots and the dropdown colors in the Columns page open one picker: **On this board** (colors already used, most used first), **Recent** (your last picks, kept in this browser), a **Palette**, and **Custom** (hue / saturation / lightness sliders and a hex field). The color applies live; **Done** (or a tap outside) closes it.
+The 🎨 button (next to the quick swatches of a note, a zone or the pen), the legend dots and the dropdown colors in the Columns page open one picker: **On this board** (colors already used, most used first), **Recent** (your last picks, kept in this browser), the **Google Sheets palette**, and **Custom** (hue / saturation / lightness sliders and a hex field). The color applies live; **Done** (or a tap outside) keeps it, **Cancel** puts the previous color back.
 
 ## Colors, filters and hiding
 
 The **◐** button:
 
-- **View → Fit to content** recenters the board. **Color notes by** a column (menu entries show `label (visible/total)` when a filter is active) or by **Status** (zone colors). A legend appears under the toolbar.
+- **View → Fit to content** recenters the board; **View → Show links** hides or shows the dotted links (remembered per browser; the lines to sub-tasks stay). **Color notes by** a column (menu entries show `label (visible/total)` when a filter is active) or by **Status** (zone colors). A legend appears under the toolbar.
 - Where the colors come from, in order: a color you picked in the legend (Edit mode: the dots are color pickers; shared, stored in the
   Sheet), the zone of that name (status), the Sheet's own cell fill or conditional format, a tone for priorities, then a palette.
   The Sheets API cannot read the colors of dropdown *chips*, which is why you pick them here. A fill shared by several values of a

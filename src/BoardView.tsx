@@ -115,6 +115,11 @@ export function BoardView({ source }: { source: Source }) {
   /** Values hidden from the board, kept across changes of the "color by" column and across reloads. */
   const [hidden, setHidden] = useState<HideRule[]>(savedView.hidden)
   const [viewMenu, setViewMenu] = useState(false)
+  const [showLinks, setShowLinksState] = useState(savedView.showLinks)
+  const setShowLinks = (on: boolean) => {
+    setShowLinksState(on)
+    saveView(sheetId, { showLinks: on })
+  }
   const [showColumns, setShowColumns] = useState(false)
   const [zones, setZones] = useState<Zone[]>([])
   /** Colors picked in the app, by `key|value`. They win over what the Sheet says. */
@@ -1209,6 +1214,7 @@ export function BoardView({ source }: { source: Source }) {
     <>
       <Board
         tasks={tasks}
+        showLinks={showLinks || tool === 'link'}
         editable={editable}
         onMove={onMove}
         onMoveEnd={onMoveEnd}
@@ -1353,6 +1359,10 @@ export function BoardView({ source }: { source: Source }) {
               <div className="menu">
                 <strong>View</strong>
                 <button onClick={fitContent}>⤢ Fit to content</button>
+                <label className="menu-check">
+                  <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
+                  Show links
+                </label>
                 {(fields.length > 0 || hasStatus) && (
                   <>
                     <strong>Color notes by</strong>

@@ -14,6 +14,7 @@ interface Props {
 
 /** Bottom sheet to choose a color: what the board already uses, recent picks, a palette and free sliders. */
 export function ColorPicker({ title, value, boardColors, onChange, onClose }: Props) {
+  const [initial] = useState(value)
   const [color, setColor] = useState(normalizeHex(value) ?? '#cccccc')
   const [hsl, setHsl] = useState<Hsl>(() => hexToHsl(value))
   const [hex, setHex] = useState(color)
@@ -34,6 +35,11 @@ export function ColorPicker({ title, value, boardColors, onChange, onClose }: Pr
     rememberColor(color)
     onClose()
   }
+  /** Puts the color back as it was when the picker opened, and closes without remembering anything. */
+  const cancel = () => {
+    onChange(initial)
+    onClose()
+  }
   const apply = (c: string, from?: Hsl) => {
     setColor(c)
     setHex(c)
@@ -45,11 +51,11 @@ export function ColorPicker({ title, value, boardColors, onChange, onClose }: Pr
     apply(hslToHex(next), next)
   }
 
-  const Row = ({ label, colors }: { label: string; colors: string[] }) =>
+  const Row = ({ label, colors, grid }: { label: string; colors: string[]; grid?: boolean }) =>
     colors.length === 0 ? null : (
       <section>
         <h3>{label}</h3>
-        <div className="cp-swatches">
+        <div className={`cp-swatches${grid ? ' grid' : ''}`}>
           {colors.map((c) => (
             <button key={c} className={`cp-swatch${c === color ? ' on' : ''}`} style={{ background: c }} aria-label={`Color ${c}`} onClick={() => apply(c)} />
           ))}
@@ -63,11 +69,12 @@ export function ColorPicker({ title, value, boardColors, onChange, onClose }: Pr
         <header>
           <strong>{title}</strong>
           <span className="cp-current" style={{ background: color }} />
-          <button onClick={close}>Done</button>
+          <button onClick={cancel}>Cancel</button>
+          <button className="primary" onClick={close}>Done</button>
         </header>
         <Row label="On this board" colors={boardColors} />
         <Row label="Recent" colors={recent} />
-        <Row label="Palette" colors={PALETTE} />
+        <Row label="Palette" colors={PALETTE} grid />
         <section>
           <h3>Custom</h3>
           <label className="cp-slider">

@@ -19,7 +19,8 @@ describe('colorUtil', () => {
     expect(byFrequency(['#111111', '#222222', '#333333'], 2)).toHaveLength(2)
   })
   it('has a palette of valid colors', () => {
-    expect(PALETTE.length).toBeGreaterThan(24)
+    expect(PALETTE).toHaveLength(80)
+    expect(new Set(PALETTE).size).toBe(80)
     expect(PALETTE.every((c) => /^#[0-9a-f]{6}$/.test(c))).toBe(true)
   })
 })

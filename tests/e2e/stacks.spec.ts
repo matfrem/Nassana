@@ -38,6 +38,7 @@ test('the badge opens the stack level by level; the open state is shared through
   await expect(note(page, 'Child')).toBeVisible()
   await expect(note(page, 'Grandchild')).toBeHidden() // Child is still closed
   await expect(page.locator('.link-line')).toHaveCount(1) // derived line parent -> child
+  await expect(page.locator('.link.stack')).toHaveCount(1) // drawn solid, unlike the dotted links
   await expect.poll(() => s.rows('_board').filter((r) => r[1] === 'open').map((r) => r[0])).toEqual(['open:a'])
   await note(page, 'Child').locator('.stack-badge').click()
   await expect(note(page, 'Grandchild')).toBeVisible()

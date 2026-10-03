@@ -18,6 +18,8 @@ export interface ViewState {
   hidden: HideRule[]
   only: OnlyRule | null
   camera: Camera | null
+  /** Draw the dotted links between notes (sub-task lines are always drawn). */
+  showLinks: boolean
 }
 
 const KEY = (sheetId: string) => `nassana.view.${sheetId}`
@@ -28,7 +30,7 @@ const isRule = (r: unknown): r is HideRule =>
 const isCamera = (c: unknown): c is Camera =>
   !!c && typeof c === 'object' && ['x', 'y', 'zoom'].every((k) => Number.isFinite((c as Record<string, unknown>)[k]))
 
-const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null })
+const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true })
 
 function readJson(key: string): unknown {
   try {
@@ -48,6 +50,7 @@ export function loadView(sheetId: string | null): ViewState {
       hidden: Array.isArray(v.hidden) ? v.hidden.filter(isRule) : [],
       only: isRule(v.only) ? v.only : null,
       camera: isCamera(v.camera) ? v.camera : null,
+      showLinks: v.showLinks !== false,
     }
   }
   // Older versions kept these two in separate entries.
