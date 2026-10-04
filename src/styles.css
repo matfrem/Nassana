@@ -801,3 +801,10 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .cfg .icon-pick { min-width: 56px; }
 .panel i.differs { font-style: normal; font-weight: 700; color: var(--accent); cursor: help; }
 .menu .submenu { display: flex; flex-direction: column; gap: 4px; padding-left: 14px; }
+.cfg-preview-note { position: relative; width: 180px; height: 180px; margin: 0 70px 0 0; }
+/* the preview note is drawn by the board's own components: keep the page's button styles off its pills */
+.cfg .cfg-preview .chip { font: inherit; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 1px 7px; border-radius: 999px; color: #1f2328; background: rgba(255, 255, 255, 0.65); border: 1px solid rgba(0, 0, 0, 0.18); pointer-events: none; }
+.cfg .cfg-preview .chip.tone-red { background: #d1242f; border-color: #d1242f; color: #fff; }
+.cfg .cfg-preview .chip.tone-orange { background: #f59e0b; border-color: #f59e0b; color: #1f2328; }
+.cfg .cfg-preview .chip.tone-green { background: #2da44e; border-color: #2da44e; color: #fff; }
+.cfg .cfg-preview .stack-badge { display: none; }

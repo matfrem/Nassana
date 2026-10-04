@@ -93,7 +93,7 @@ test('with the Move tool: arrows nudge the picked stroke, Delete removes it, Und
   await expect(undo).toBeDisabled()
 })
 
-test('with notes colored by a column, the manual color buttons are disabled', async ({ page }) => {
+test('with notes colored by a column, the manual color buttons are not offered', async ({ page }) => {
   const s = new FakeSheet({
     Tasks: [['id', 'title', 'board', 'status'], ['a', 'Alpha', board(0, 0), 'X']],
   })
@@ -103,8 +103,9 @@ test('with notes colored by a column, the manual color buttons are disabled', as
   await page.getByRole('button', { name: /^Status/ }).click()
   const c = await noteCenter(page, 'Alpha')
   await page.mouse.click(c.x - 40, c.y - 40)
-  await expect(page.getByRole('button', { name: 'More colors' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: /^Color #/ }).first()).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Stamps' })).toBeVisible() // the bar is there...
+  await expect(page.getByRole('button', { name: 'More colors' })).toHaveCount(0) // ...without manual colors
+  await expect(page.getByRole('button', { name: /^Color #/ })).toHaveCount(0)
 })
 
 test('links in a description become "Open Link N" buttons in the details', async ({ page }) => {

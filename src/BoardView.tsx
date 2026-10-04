@@ -1978,6 +1978,14 @@ export function BoardView({ source }: { source: Source }) {
             <div className="menu">
               <strong>View</strong>
               <button onClick={fitContent}>⤢ Fit to content</button>
+              <button
+                onClick={() => {
+                  setViewMenu(false)
+                  zoomTo('reset')
+                }}
+              >
+                🔍 Zoom 100%
+              </button>
               <label className="menu-check">
                 <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
                 Show links
@@ -2076,10 +2084,6 @@ export function BoardView({ source }: { source: Source }) {
             ↻
           </button>
         )}
-        <span className="sep" />
-        <button onClick={() => zoomTo(1 / 1.25)} aria-label="Zoom out">−</button>
-        <button onClick={() => zoomTo('reset')}>{Math.round(camera.zoom * 100)}%</button>
-        <button onClick={() => zoomTo(1.25)} aria-label="Zoom in">+</button>
       </div>
 
       {editable && tool !== 'select' && multi.length > 0 && !editingId && (
@@ -2087,21 +2091,20 @@ export function BoardView({ source }: { source: Source }) {
           <span className="multi-count">{multi.length} selected</span>
           {multi.some((i) => i.kind === 'note') && (
             <>
+              {!colorBy && (
+                <>
               {NOTE_COLORS.map((c) => (
                 <button
                   key={c}
                   className="swatch"
                   style={{ background: c }}
                   aria-label={`Color ${c}`}
-                  disabled={!!colorBy}
-                  title={colorBy ? 'Notes are colored by a column: switch to "Manual color" to pick one' : undefined}
                   onClick={() => colorMulti(c)}
                 />
               ))}
               <button
                 className="more-colors"
                 aria-label="More colors"
-                disabled={!!colorBy}
                 onClick={() => {
                   const first = tasks.find((t) => multi.some((i) => i.kind === 'note' && i.id === t.id))
                   setPicker({ title: 'Color of the selected notes', value: first?.board.color ?? NOTE_COLORS[0], onChange: colorMulti })
@@ -2109,6 +2112,8 @@ export function BoardView({ source }: { source: Source }) {
               >
                 🎨
               </button>
+                </>
+              )}
               <span className="sep" />
               <button onClick={() => setMultiDetail(true)}>☰ Details</button>
               {multi.some((i) => i.kind === 'note' && tasks.find((t) => t.id === i.id)?.parent) && (
@@ -2151,26 +2156,26 @@ export function BoardView({ source }: { source: Source }) {
 
       {editable && tool === 'none' && selectedId && !editingId && !detailId && (
         <div className="selection-bar">
+          {!colorBy && (
+            <>
           {NOTE_COLORS.map((c) => (
             <button
               key={c}
               className="swatch"
               style={{ background: c }}
               aria-label={`Color ${c}`}
-              disabled={!!colorBy}
-              title={colorBy ? 'Notes are colored by a column: switch to "Manual color" to pick one' : undefined}
               onClick={() => onColor(c)}
             />
           ))}
           <button
             className="more-colors"
             aria-label="More colors"
-            disabled={!!colorBy}
-            title={colorBy ? 'Notes are colored by a column: switch to "Manual color" to pick one' : undefined}
             onClick={() => setPicker({ title: 'Note color', value: tasks.find((t) => t.id === selectedId)?.board.color ?? NOTE_COLORS[0], onChange: onColor })}
           >
             🎨
           </button>
+            </>
+          )}
           <span className="sep" />
           <button onClick={() => setDetailId(selectedId)}>☰ Details</button>
           <button onClick={() => addNote(selectedId)} aria-label="Add sub-task">

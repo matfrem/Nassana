@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ColorPicker } from './ColorPicker'
 import { COLUMN_ICONS, NOTE_COLORS } from './constants'
-import { chipFor, RESERVED, type Field } from './fields'
+import { StampStack } from './board/StampStack'
+import { StickyNote } from './board/StickyNote'
+import { chipFor, RESERVED, TONE_COLORS, type Chip, type Field } from './fields'
 import {
   applyColumns,
   buildRequests,
@@ -189,7 +191,7 @@ export function ColumnsPage({ sheetId, fields, tasks, icons, onIcon, onShown, on
 
         {opened && (
           <>
-            <Preview drafts={live} />
+            <Preview drafts={live} fields={fields} icons={icons} />
 
             <h3>Your columns</h3>
             <p className="hint">These are the columns of your Sheet. Changes are written to it when you press Apply.</p>
@@ -438,38 +440,63 @@ function Row({
   )
 }
 
-/** A sample note showing how the columns marked “Show on notes” will look. */
-function Preview({ drafts }: { drafts: Draft[] }) {
+/** A sample note drawn by the board's own code: the pills with their emoji and colors, a description, a stamp. */
+function Preview({ drafts, fields, icons }: { drafts: Draft[]; fields: Field[]; icons: Record<string, string> }) {
   const today = new Date()
   const soon = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
   const iso = `${soon.getFullYear()}-${String(soon.getMonth() + 1).padStart(2, '0')}-${String(soon.getDate()).padStart(2, '0')}`
-  const chips = drafts
+  const chips: Chip[] = drafts
     .filter((d) => d.shown && d.name.trim())
     .flatMap((d) => {
-      const field: Field = {
-        key: d.uid,
-        label: d.name.trim(),
-        index: 0,
-        shown: true,
-        type: d.type,
-        options: d.opts.map((o) => o.value),
-      }
+      const field: Field = { key: d.uid, label: d.name.trim(), index: 0, shown: true, type: d.type, options: d.opts.map((o) => o.value) }
       const sample = d.type === 'date' ? iso : d.type === 'number' ? 3 : d.type === 'checkbox' ? true : d.type === 'select' ? (d.opts[0]?.value ?? '') : 'Sample'
-      return chipFor(field, sample) ?? []
+      const chip = chipFor(field, sample)
+      if (!chip) return []
+      const iconKey = d.index !== undefined ? fields.find((f) => f.index === d.index)?.key : undefined
+      const color = d.type === 'select' ? (d.opts[0]?.color ?? (chip.tone ? TONE_COLORS[chip.tone] : undefined)) : undefined
+      return [{ ...chip, icon: (iconKey && icons[iconKey]) || chip.icon, color }]
     })
+  const task: Task = {
+    id: 'preview',
+    title: 'Example note',
+    description: 'A short description of the task, as it shows when you zoom in.',
+    board: { x: 0, y: 0, color: '#FFE066' },
+    stamps: ['fire'],
+  }
   return (
     <div className="cfg-preview">
       <span className="hint">Preview</span>
-      <div className="note static" style={{ background: '#FFE066', color: '#1f2328' }}>
-        <div className="note-title">Example note</div>
-        <div className="note-chips">
-          {chips.map((c) => (
-            <span key={c.key} className={`chip${c.tone ? ` tone-${c.tone}` : ''}`}>
-              {c.icon && <span aria-hidden>{c.icon}</span>}
-              {c.text}
-            </span>
-          ))}
-        </div>
+      <div className="cfg-preview-note">
+        <StickyNote
+          task={task}
+          zoom={1}
+          editable={false}
+          selected={false}
+          editing={false}
+          onMove={() => {}}
+          onMoveEnd={() => {}}
+          onSelect={() => {}}
+          onOpen={() => {}}
+          onRename={() => {}}
+          onRenameDone={() => {}}
+          chips={chips}
+          ghost={false}
+          dim={false}
+          color="#FFE066"
+          ink="#1f2328"
+          level={2}
+          tooling={false}
+          onChip={() => {}}
+          gesture={() => ({ multi: false, epoch: 0 })}
+          selectedStrokeId={null}
+          tuckedInto={null}
+          subtasks={0}
+          dropTarget={false}
+          stackOpen={false}
+          onStack={() => {}}
+          gliding={false}
+        />
+        <StampStack ids={task.stamps ?? []} x={0} y={0} />
       </div>
     </div>
   )

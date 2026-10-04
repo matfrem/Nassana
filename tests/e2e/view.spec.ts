@@ -292,3 +292,16 @@ test('opening one menu closes the others', async ({ page }) => {
   await expect(page.locator('.menu')).toHaveCount(1)
   await expect(page.locator('.menu')).toContainText('Show links')
 })
+
+test('no zoom controls in the toolbar; "Zoom 100%" is in the View menu', async ({ page }) => {
+  const sheet = new FakeSheet({ Tasks: [['id', 'title', 'board'], ['a', 'Alpha', board(-1500, 0)], ['b', 'Beta', board(1500, 0)]] })
+  await openBoard(page, sheet)
+  await expect(page.getByRole('button', { name: 'Zoom in' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Zoom out' })).toHaveCount(0)
+  await expect(page.locator('.toolbar')).not.toContainText('%')
+  const scale = () => page.locator('.world').evaluate((e) => Number(/scale\(([\d.]+)\)/.exec((e as HTMLElement).style.transform)?.[1]))
+  expect(await scale()).toBeLessThan(0.5) // fitted: far zoomed out
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: /Zoom 100%/ }).click()
+  expect(await scale()).toBe(1)
+})

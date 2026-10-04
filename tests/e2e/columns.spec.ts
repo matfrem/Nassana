@@ -170,3 +170,21 @@ test('a column can be given an emoji (saved in the board only), shown before the
   await row(page, 'project').getByLabel('Emoji').selectOption('')
   await expect.poll(() => s.rows('_board').filter((r) => r[0] === 'colicon:project#').length).toBe(0)
 })
+
+test('the preview is drawn like a real note: emoji, value colors, a description and a stamp', async ({ page }) => {
+  const s = sheetWithColumns()
+  s.tabs._board = [['id', 'type', 'data'], ['colicon:project#', 'colicon', '🎯']]
+  await openBoard(page, s)
+  await openColumns(page)
+  const preview = page.locator('.cfg-preview')
+  await expect(preview.locator('.note-title')).toHaveText('Example note')
+  await expect(preview.locator('.note-desc')).toContainText('description')
+  await expect(preview.locator('.stamp')).toHaveText(['🔥'])
+  await expect(preview.locator('.chip').filter({ hasText: '🎯' })).toHaveCount(1)
+  // a dropdown column shows its first value in that value's color
+  await row(page, 'project').getByLabel('Type').selectOption('select')
+  await page.getByRole('button', { name: '＋ Add a value' }).first().click().catch(() => {})
+  const chip = preview.locator('.chip').filter({ hasText: /BSN|TZ/ }).first()
+  await expect(chip).toBeVisible()
+  expect(await chip.evaluate((e) => getComputedStyle(e).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+})
