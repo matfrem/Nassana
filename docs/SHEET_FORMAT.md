@@ -75,3 +75,7 @@ cell is ignored (the note is re-placed automatically).
 ## The `parent` column
 
 `parent` (in `Tasks`, added automatically when needed) holds the `id` of the note a task is a sub-task of; empty = free note. Parents can have parents (a tree). Loops and unknown ids are ignored. Because it is a reserved name, an existing custom column called `parent` would be read this way.
+
+## The `stamps` column
+
+`stamps` (in `Tasks`, added automatically when needed) holds the ids of the note's stamps, separated by commas (`fire,bomb`). Unknown ids are ignored. The list of stamps is built into the app (`src/stamps.ts`). Like `parent`, `stamps` is a reserved name.

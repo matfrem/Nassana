@@ -7,7 +7,7 @@ export type FieldType = 'text' | 'number' | 'date' | 'checkbox' | 'select' | 'li
 export type Tone = 'red' | 'orange' | 'green'
 
 /** Columns with a meaning of their own. Every other column is a custom field. */
-export const RESERVED = ['id', 'title', 'description', 'board', 'drawing', 'status', 'parent']
+export const RESERVED = ['id', 'title', 'description', 'board', 'drawing', 'status', 'parent', 'stamps']
 
 /** A custom column of the Tasks tab. */
 export interface Column {

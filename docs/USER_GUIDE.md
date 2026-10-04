@@ -50,6 +50,10 @@ Any column whose header ends with `#` (`dueDate#`, `prio#`…) is shown as a pil
 **priorities** (`high`/`medium`/`low`, `P1`…) are red/orange/green, links show their site name. Columns without `#` appear only
 in the details panel. `title` and `description` are fixed.
 
+## Stamps
+
+Select a note (or several) and tap **★ Stamps**: a grid of 32 stamps opens (🔥 💣 ⭐ ✅ …). Tap a stamp to put it on the note, tap again to take it off; the grid stays open so you can stamp several, and **Close** ends it. With several notes selected, a stamp they all carry is removed from all, otherwise it is added to all. Stamps sit at the top right of the note, sticking out and stacked; after three, a new column starts to its left. A duplicate keeps its stamps; the stamps of a note tucked in a closed stack are not drawn. They are stored in a `stamps` column of `Tasks` (created when needed): the stamp ids separated by commas, e.g. `fire,bomb`.
+
 ## Keyboard shortcuts (Edit mode, on a computer)
 
 | Keys | What |

@@ -2,6 +2,7 @@ import { NOTE_COLORS, NOTE_SIZE, NOTE_STEP } from '../constants'
 import { DRAWING_TAB, REQUIRED_COLUMNS, TASKS_TAB } from '../config'
 import { decodeNoteDrawing, decodeStroke, encodeNoteDrawing, encodeStroke } from '../board/ink'
 import { decodeLink } from '../board/links'
+import { formatStamps, parseStamps } from '../stamps'
 import { decodeZone } from '../board/zones'
 import { columnsOf, type Cell, type Column, type FieldMeta } from '../fields'
 import type { BoardInfo, ColorRule, Link, Stroke, Task, Zone } from '../types'
@@ -141,7 +142,7 @@ export function parseTasks(rows: unknown[][]): {
       columns: HEADER.filter((c) => col(c) < 0),
     })
   }
-  const [iId, iTitle, iBoard, iDrawing, iStatus, iDesc, iParent] = [col('id'), col('title'), col('board'), col('drawing'), col('status'), col('description'), col('parent')]
+  const [iId, iTitle, iBoard, iDrawing, iStatus, iDesc, iParent, iStamps] = [col('id'), col('title'), col('board'), col('drawing'), col('status'), col('description'), col('parent'), col('stamps')]
   const columns = columnsOf(rows[0])
 
   const warnings: string[] = []
@@ -171,6 +172,7 @@ export function parseTasks(rows: unknown[][]): {
       drawing: iDrawing >= 0 ? decodeNoteDrawing(id, row[iDrawing]) : [],
       status: iStatus >= 0 ? String(row[iStatus] ?? '').trim() || undefined : undefined,
       description: iDesc >= 0 ? String(row[iDesc] ?? '') || undefined : undefined,
+      stamps: iStamps >= 0 ? parseStamps(row[iStamps]) : undefined,
       parent: iParent >= 0 ? String(row[iParent] ?? '').trim() || undefined : undefined,
       values: Object.fromEntries(
         columns.flatMap((c) => (row[c.index] === undefined || row[c.index] === '' ? [] : [[c.key, row[c.index] as Cell]])),
@@ -284,6 +286,8 @@ export interface TaskPatch {
   description?: string
   /** The parent's id; an empty string clears it. */
   parent?: string
+  /** Stamp ids, comma separated; an empty string clears them. */
+  stamps?: string
   /** Custom columns to write, by column key (the column must already exist in the header). */
   values?: Record<string, Cell>
 }
@@ -324,6 +328,9 @@ export async function saveTasks(sheetId: string, patches: TaskPatch[]): Promise<
     }
     if (p.description !== undefined) {
       data.push({ range: `${TASKS_TAB}!${columnLetter(column('description'))}${row}`, values: [[p.description]] })
+    }
+    if (p.stamps !== undefined) {
+      data.push({ range: `${TASKS_TAB}!${columnLetter(column('stamps'))}${row}`, values: [[p.stamps]] })
     }
     if (p.parent !== undefined) {
       data.push({ range: `${TASKS_TAB}!${columnLetter(column('parent'))}${row}`, values: [[p.parent]] })
@@ -369,6 +376,7 @@ export async function appendTask(sheetId: string, task: Task): Promise<void> {
   if (task.description) cells.set(need('description'), task.description)
   if (task.status) cells.set(need('status'), task.status)
   if (task.parent) cells.set(need('parent'), task.parent)
+  if (task.stamps?.length) cells.set(need('stamps'), formatStamps(task.stamps))
   if (task.drawing?.length) cells.set(need('drawing'), encodeNoteDrawing(task.drawing, DRAWING_EPS))
   for (const [key, v] of Object.entries(task.values ?? {})) {
     const i = header.indexOf(key)

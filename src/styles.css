@@ -785,3 +785,15 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .open-link:hover { background: rgba(128, 128, 128, 0.15); }
 .sel-rect { position: absolute; top: 0; left: 0; border: calc(1.5px / var(--zoom, 1)) dashed var(--accent); background: rgba(59, 130, 246, 0.12); pointer-events: none; }
 .multi-count { font-weight: 600; font-size: 14px; padding: 0 6px; white-space: nowrap; }
+
+/* ---- stamps ---- */
+.stamp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 8px; padding: 8px 0; }
+.stamp-cell { font-size: 28px; line-height: 1; padding: 8px 0; border: 2px solid var(--ui-border); border-radius: 10px; background: transparent; cursor: pointer; }
+.stamp-cell.on { border-color: var(--accent); background: rgba(59, 130, 246, 0.18); }
+.stamp-cell.some { border-style: dashed; border-color: var(--accent); }
+.stamps { position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2; pointer-events: none; transition: opacity 0.15s; }
+.stamps.dim { opacity: 0.22; }
+.stamp-col { position: absolute; top: -14px; display: flex; flex-direction: column; gap: 0; }
+.stamp { width: 40px; height: 36px; margin-bottom: -4px; font-size: 32px; line-height: 36px; text-align: center; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.4)); }
+.stamp:nth-child(odd) { transform: rotate(-7deg); }
+.stamp:nth-child(even) { transform: rotate(6deg); }

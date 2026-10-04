@@ -8,6 +8,7 @@ import { Ink, type Clip } from './InkLayer'
 import { LinksLayer, type LinkItem, type LiveLink } from './LinksLayer'
 import { distToSeg, segmentBetween, segmentToPoint } from './links'
 import { StickyNote } from './StickyNote'
+import { stampColumns, stampEmoji } from '../stamps'
 import { zoneOfNote } from './zones'
 import { ZoneView } from './ZoneView'
 
@@ -669,6 +670,25 @@ export function Board({
             onRename={onRename}
             onRenameDone={onRenameDone}
           />
+          )
+        })}
+        {tasks.map((t) => {
+          // Stamps: stacked at the top right, sticking out; more than three go into a new column to the left.
+          const cols = stampColumns(t.stamps ?? [])
+          const v = noteView(t)
+          if (!cols.length || v.hidden || stack.tucked.has(t.id)) return null
+          return (
+            <div key={`stamps-${t.id}`} className={`stamps${v.dim ? ' dim' : ''}`} style={{ transform: `translate(${t.board.x + NOTE_SIZE}px, ${t.board.y}px)` }}>
+              {cols.map((col, ci) => (
+                <div key={ci} className="stamp-col" style={{ left: -30 - ci * 34 }}>
+                  {col.map((id) => (
+                    <span key={id} className="stamp">
+                      {stampEmoji(id)}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
           )
         })}
         <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} selected={new Set([...(tool === 'move' && selectedStroke && !selectedStroke.noteId ? [selectedStroke.id] : []), ...[...multiKeys].filter((k) => k.startsWith('s:')).map((k) => k.slice(2))])} />

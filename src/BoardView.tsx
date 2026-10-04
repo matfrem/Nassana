@@ -9,6 +9,8 @@ import { GRID, INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE
 import { demoTasks } from './data'
 import { selKey, type SelItem } from './board/Board'
 import { ColorPicker } from './ColorPicker'
+import { StampPicker } from './StampPicker'
+import { formatStamps, toggledStamps } from './stamps'
 import { byFrequency } from './colorUtil'
 import { DetailPanel, type LinkRow } from './DetailPanel'
 import { ColumnsPage } from './ColumnsPage'
@@ -133,6 +135,7 @@ export function BoardView({ source }: { source: Source }) {
   const [hidden, setHidden] = useState<HideRule[]>(savedView.hidden)
   const [viewMenu, setViewMenu] = useState(false)
   const [moreMenu, setMoreMenu] = useState(false)
+  const [stampMenu, setStampMenu] = useState(false)
   const [showLinks, setShowLinksState] = useState(savedView.showLinks)
   const setShowLinks = (on: boolean) => {
     setShowLinksState(on)
@@ -230,7 +233,7 @@ export function BoardView({ source }: { source: Source }) {
   tasksRef.current = tasks
   /** Which cells of which tasks still have to be written to the Sheet. */
   const dirty = useRef(
-    new Map<string, { title?: boolean; board?: boolean; drawing?: boolean; status?: boolean; description?: boolean; parent?: boolean; cols?: Set<string> }>(),
+    new Map<string, { title?: boolean; board?: boolean; drawing?: boolean; status?: boolean; description?: boolean; parent?: boolean; stamps?: boolean; cols?: Set<string> }>(),
   )
   const timer = useRef<ReturnType<typeof setTimeout>>()
   const saving = useRef<Promise<void>>(Promise.resolve())
@@ -400,6 +403,7 @@ export function BoardView({ source }: { source: Source }) {
           status: d?.status ? (t.status ?? '') : undefined,
           description: d?.description ? (t.description ?? '') : undefined,
           parent: d?.parent ? (t.parent ?? '') : undefined,
+          stamps: d?.stamps ? formatStamps(t.stamps ?? []) : undefined,
           values: d?.cols ? Object.fromEntries([...d.cols].map((k) => [k, t.values?.[k] ?? ''])) : undefined,
         })
       }
@@ -449,7 +453,7 @@ export function BoardView({ source }: { source: Source }) {
   }, [sheetId, enqueue])
 
   const markDirty = useCallback(
-    (id: string, field: 'title' | 'board' | 'drawing' | 'status' | 'description' | 'parent') => {
+    (id: string, field: 'title' | 'board' | 'drawing' | 'status' | 'description' | 'parent' | 'stamps') => {
       if (!sheetId) return
       dirty.current.set(id, { ...dirty.current.get(id), [field]: true })
       clearTimeout(timer.current)
@@ -811,6 +815,7 @@ export function BoardView({ source }: { source: Source }) {
       autoPlaced: false,
       values: { ...src.values },
       drawing: src.drawing?.map((s, i) => ({ ...s, id: `${id}-${i}`, p: [...s.p] })),
+      stamps: src.stamps ? [...src.stamps] : undefined,
     }
     setTasks((ts) => [...ts, copy])
     setSelectedId(id)
@@ -1467,6 +1472,25 @@ export function BoardView({ source }: { source: Source }) {
     groupApi.current.end()
   }
 
+  /** The notes the stamp menu acts on: the selected note, or every selected note. */
+  const stampTargets = (): string[] =>
+    multiRef.current.length ? multiRef.current.filter((i) => i.kind === 'note').map((i) => i.id) : selectedId ? [selectedId] : []
+
+  /** Adds the stamp to the notes, or removes it from all of them when they all have it already. */
+  const toggleStamp = (stamp: string) => {
+    const ids = new Set(stampTargets())
+    const targets = tasksRef.current.filter((t) => ids.has(t.id))
+    const allHave = targets.length > 0 && targets.every((t) => t.stamps?.includes(stamp))
+    setTasks((ts) =>
+      ts.map((t) => {
+        if (!ids.has(t.id)) return t
+        const has = t.stamps?.includes(stamp)
+        return allHave === !!has ? { ...t, stamps: toggledStamps(t.stamps, stamp) } : t
+      }),
+    )
+    targets.forEach((t) => markDirty(t.id, 'stamps'))
+  }
+
   const colorMulti = (color: string) => {
     const ids = new Set(multiRef.current.filter((i) => i.kind === 'note').map((i) => i.id))
     setTasks((ts) => ts.map((t) => (ids.has(t.id) ? { ...t, board: { ...t.board, color } } : t)))
@@ -1516,6 +1540,7 @@ export function BoardView({ source }: { source: Source }) {
         autoPlaced: false,
         values: { ...t.values },
         drawing: t.drawing?.map((st, i) => ({ ...st, id: `${id}-${i}`, p: [...st.p] })),
+        stamps: t.stamps ? [...t.stamps] : undefined,
         parent: t.parent && ids.has(t.parent) ? ids.get(t.parent) : t.parent,
       }
     })
@@ -1546,7 +1571,7 @@ export function BoardView({ source }: { source: Source }) {
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {})
   keyHandler.current = (e) => {
     const el = e.target as HTMLElement | null
-    if (!editable || e.defaultPrevented || picker || (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)))) return
+    if (!editable || e.defaultPrevented || picker || stampMenu || (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)))) return
     const arrows: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
     const step = arrows[e.key]
     const del = e.key === 'Delete' || e.key === 'Backspace'
@@ -1879,6 +1904,9 @@ export function BoardView({ source }: { source: Source }) {
                 🎨
               </button>
               <span className="sep" />
+              <button aria-label="Stamps" onClick={() => setStampMenu(true)}>
+                ★ Stamps
+              </button>
               <button
                 aria-label="Duplicate"
                 onClick={() => {
@@ -1938,6 +1966,9 @@ export function BoardView({ source }: { source: Source }) {
               ⇱ Unparent
             </button>
           )}
+          <button onClick={() => setStampMenu(true)} aria-label="Stamps">
+            ★ Stamps
+          </button>
           <button onClick={duplicateSelected} aria-label="Duplicate">
             ⧉ Duplicate
           </button>
@@ -2161,6 +2192,14 @@ export function BoardView({ source }: { source: Source }) {
           onRemoveLink={(id) => removeLinks([id])}
         />
       )}
+
+      {stampMenu && (() => {
+        const ids = new Set(stampTargets())
+        const targets = tasks.filter((t) => ids.has(t.id))
+        const all = new Set(targets.length ? (targets[0].stamps ?? []).filter((id) => targets.every((t) => t.stamps?.includes(id))) : [])
+        const some = new Set(targets.flatMap((t) => t.stamps ?? []))
+        return <StampPicker title={targets.length > 1 ? `Stamps for ${targets.length} notes` : 'Stamps'} active={all} some={some} onToggle={toggleStamp} onClose={() => setStampMenu(false)} />
+      })()}
 
       {picker && (
         <ColorPicker
