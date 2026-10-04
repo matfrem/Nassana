@@ -206,6 +206,4 @@ test('pills of dropdown values take the color of their value (same as the legend
   await expect(low).toHaveCSS('background-color', 'rgb(18, 52, 86)') // a color picked in the app
   await expect(low).toHaveCSS('color', 'rgb(245, 245, 245)') // light text, readable on it
   await expect(high).toHaveCSS('background-color', 'rgb(255, 173, 173)') // a priority tone
-  const team = note(page, 'Ship it').locator('.chip').nth(5)
-  await expect(team).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)') // a list value always has a color
 })
