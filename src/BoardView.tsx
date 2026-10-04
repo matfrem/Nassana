@@ -1753,6 +1753,11 @@ export function BoardView({ source }: { source: Source }) {
           setSelectedId(id)
           setSelectedZoneId(null)
           setSelectedLinkId(null)
+          if (id && (detailId || zoneDetailId)) {
+            // A details panel is open: it follows the selection.
+            setDetailId(id)
+            setZoneDetailId(null)
+          }
           if (!id) {
             setDetailId(null)
             setZoneDetailId(null)
@@ -1793,6 +1798,10 @@ export function BoardView({ source }: { source: Source }) {
           setMulti([])
           setSelectedZoneId(id)
           setSelectedId(null)
+          if (detailId || zoneDetailId) {
+            setZoneDetailId(id)
+            setDetailId(null)
+          }
         }}
         onZoneDragStart={onZoneDragStart}
         onZoneDrag={onZoneDrag}

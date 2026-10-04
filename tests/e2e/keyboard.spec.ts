@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { FakeSheet } from './fakeSheet'
-import { board, center, drag, note, noteCenter, openBoard, startEditing } from './helpers'
+import { board, center, drag, note, noteCenter, openBoard, startEditing, zoneRow } from './helpers'
 
 const sheet = () =>
   new FakeSheet({
@@ -121,4 +121,26 @@ test('links in a description become "Open Link N" buttons in the details', async
   await expect(links.nth(1)).toHaveAttribute('target', '_blank')
   await note(page, 'Beta').click({ button: 'right' })
   await expect(page.locator('.open-link')).toHaveCount(0)
+})
+
+test('an open details panel follows the selection: tap another note or zone and it shows that one', async ({ page }) => {
+  const s = new FakeSheet({
+    Tasks: [['id', 'title', 'board', 'status'], ['a', 'Alpha', board(-300, -100), ''], ['b', 'Beta', board(0, -100), ''], ['c', 'Gamma', board(300, -100), '']],
+    _board: [['id', 'type', 'data'], zoneRow('z1', 'Box', -300, 150, 400, 250)],
+  })
+  await openBoard(page, s)
+  await startEditing(page)
+  await note(page, 'Alpha').click({ button: 'right' })
+  const panel = page.getByRole('complementary', { name: 'Note details' })
+  await expect(panel.getByLabel('Title')).toHaveValue('Alpha')
+  const b = await noteCenter(page, 'Beta')
+  await page.mouse.click(b.x - 60, b.y - 60)
+  await expect(panel.getByLabel('Title')).toHaveValue('Beta') // same panel, new note
+  const header = (await page.locator('.zone-header').first().boundingBox())!
+  await page.mouse.click(header.x + 30, header.y + 10)
+  await expect(page.getByRole('complementary', { name: 'Zone details' })).toBeVisible()
+  await expect(panel).toHaveCount(0)
+  const b2 = await noteCenter(page, 'Beta')
+  await page.mouse.click(b2.x - 60, b2.y - 60)
+  await expect(page.getByRole('complementary', { name: 'Note details' }).getByLabel('Title')).toHaveValue('Beta')
 })
