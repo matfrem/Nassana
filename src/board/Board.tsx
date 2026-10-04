@@ -454,8 +454,10 @@ export function Board({
       setLiveZone(null)
     } else if (mode.current === 'pan' && finished && !tap.current.moved) {
       // A tap on a note opens its details; a tap on the empty background deselects.
-      if (tap.current.noteId) onNoteOpen(tap.current.noteId)
-      else {
+      if (tap.current.noteId) {
+        onSelect(tap.current.noteId) // a right click (or tap) selects the note as well as opening its details
+        onNoteOpen(tap.current.noteId)
+      }      else {
         const w = world(e)
         const hit = editable && tool === 'none' ? linkItems.find((it) => distToSeg(it.seg, w.x, w.y) <= 14 / camRef.current.zoom) : undefined
         if (hit && !hit.link.id.startsWith('stack:')) onLinkSelect(hit.link.id)
@@ -521,7 +523,7 @@ export function Board({
       onContextMenu={(e) => e.preventDefault()}
     >
       <div
-        className={`world${level === 0 ? ' far' : ''}`}
+        className={`world${camera.zoom < 0.25 ? ' far' : ''}`}
         style={{
           transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
           // Lets the CSS keep selection outlines and handles the same size on screen at any zoom.

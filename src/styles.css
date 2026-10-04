@@ -779,3 +779,4 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 /* zoomed far out: cheaper drawing (no shadows, no dots) so phones keep up */
 .world.far .note, .world.far .zone { box-shadow: none; }
 .world.far .stack-cards i { box-shadow: none; }
+.selection-bar button:disabled { opacity: 0.35; cursor: not-allowed; }

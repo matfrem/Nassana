@@ -47,6 +47,17 @@ Any column whose header ends with `#` (`dueDate#`, `prio#`…) is shown as a pil
 **priorities** (`high`/`medium`/`low`, `P1`…) are red/orange/green, links show their site name. Columns without `#` appear only
 in the details panel. `title` and `description` are fixed.
 
+## Keyboard shortcuts (Edit mode, on a computer)
+
+| Keys | What |
+|---|---|
+| ← ↑ → ↓ | Move the selected note, or the picked stroke with the Move tool, by one grid step (40 units) |
+| Delete / Backspace | Delete the selected note (asks first) or the picked stroke |
+| Ctrl/⌘ + C, Ctrl/⌘ + V | Copy and paste a note (a paste is a duplicate; paste again for more) |
+| Esc | Leave Edit mode |
+
+Right-click on a note selects it and opens its details. **Undo** in the drawing bar undoes the last drawing action — a stroke added, erased, deleted or moved (up to 100 steps) — and is greyed out when there is nothing left. While notes are colored by a column, the manual color buttons are disabled.
+
 ## Zones: a scrum board
 
 A zone has a **title** (and a title size), and an optional **auto-assign status**. With a status, notes dropped in it get that status; with none (the default for a zone you draw yourself) it just groups notes. When the title is empty, the status is shown as the title. Edit all of it in the zone's details (double-tap its header); tapping the header text renames the title.

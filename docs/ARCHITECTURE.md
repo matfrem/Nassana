@@ -117,5 +117,4 @@ Per-browser view state (color-by, hidden values, filter, camera) lives in `local
 - No real-time sync: other people's changes arrive on refresh (30 s in read-only). Two editors moving the same note: last write wins.
 - Changing a column's type doesn't convert existing values; hide/filter/color-by choices live on the device, not in the Sheet.
 - Undo covers strokes only; deleting a note/zone/column is final (use Sheets' version history).
-- Ideas: resizable notes (a resize handle; would need a size per note in the `board` JSON and layout changes for links/zones), 🔒 on a note whose predecessor isn't in the last zone, auto-scroll the board under an open panel, list/table view, creating a Sheet from the app,
-  per-board settings stored in `_board`.
+- Ideas and planned work: see [TODO.md](TODO.md).

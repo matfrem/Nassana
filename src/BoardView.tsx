@@ -5,7 +5,7 @@ import { ARROW_MODES, encodeLink } from './board/links'
 import { childrenOf, cleanParents, tucked as tuckedNotes, wouldCycle, type Parents } from './board/stacks'
 import { applyZones, centerOf, encodeZone, notesInZone, zoneAt, zoneLabel } from './board/zones'
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
-import { INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE_HEADER } from './constants'
+import { GRID, INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE_HEADER } from './constants'
 import { demoTasks } from './data'
 import { ColorPicker } from './ColorPicker'
 import { byFrequency } from './colorUtil'
@@ -65,6 +65,11 @@ const STATUS_FIELD: Field = { key: 'status', label: 'Status', index: -1, shown: 
 
 const POLL_MS = 30_000
 const SAVE_DELAY_MS = 800
+
+type UndoOp =
+  | { kind: 'add'; ref: { id: string; noteId?: string } }
+  | { kind: 'remove'; items: { stroke: Stroke; noteId?: string }[] }
+  | { kind: 'move'; ref: { id: string; noteId?: string }; from: number[] }
 
 type SaveState = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved' } | { kind: 'error'; message: string }
 
@@ -177,10 +182,18 @@ export function BoardView({ source }: { source: Source }) {
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS.thin)
   const strokesRef = useRef(strokes)
   strokesRef.current = strokes
-  /** Strokes drawn in this session, newest last, for undo. */
-  const undoStack = useRef<{ id: string; noteId?: string }[]>([])
+  /** Drawing actions of this session, newest last, for undo: adding, erasing/deleting and moving strokes. */
+  const undoOps = useRef<UndoOp[]>([])
+  const [undoLen, setUndoLen] = useState(0)
+  const pushUndo = (op: UndoOp) => {
+    undoOps.current = [...undoOps.current, op].slice(-100)
+    setUndoLen(undoOps.current.length)
+  }
   /** Strokes erased during the current eraser gesture, deleted from the Sheet when it ends. */
   const erased = useRef(new Set<string>())
+  const erasedItems = useRef<{ stroke: Stroke; noteId?: string }[]>([])
+  /** Where the stroke being moved started, so the move can be undone. */
+  const moveFrom = useRef<{ id: string; p: number[] } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [camera, setCamera] = useState<Camera>(
@@ -445,7 +458,7 @@ export function BoardView({ source }: { source: Source }) {
 
   /** Dropping a note in a zone gives it that zone's status. Outside every zone, the status is kept. */
   const onMoveEnd = useCallback(
-    (id: string) => {
+    (id: string, at?: { x: number; y: number }) => {
       setDraggingId(null)
       const d = dwell.current
       clearTimeout(d.timer)
@@ -456,7 +469,7 @@ export function BoardView({ source }: { source: Source }) {
       if (adopt) queueMicrotask(() => setParentRef.current(id, adopt))
       const task = tasksRef.current.find((t) => t.id === id)
       if (!task) return
-      const c = centerOf(task)
+      const c = at ? { x: at.x + NOTE_SIZE / 2, y: at.y + NOTE_SIZE / 2 } : centerOf(task)
       const zone = zoneAt(zonesRef.current, c.x, c.y)
       if (zone && zone.name.trim() && task.status !== zone.name.trim()) {
         setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, status: zone.name.trim() } : t)))
@@ -753,7 +766,10 @@ export function BoardView({ source }: { source: Source }) {
   /** A copy of the selected note (title, description, status, properties, drawing) in the nearest free spot. */
   const duplicateSelected = () => {
     const src = tasksRef.current.find((t) => t.id === selectedId)
-    if (!src) return
+    if (src) duplicateTask(src)
+  }
+
+  const duplicateTask = (src: Task) => {
     const id = crypto.randomUUID().slice(0, 8)
     const spot = freeSpot(tasksRef.current, src.board.x, src.board.y)
     const copy: Task = {
@@ -930,14 +946,14 @@ export function BoardView({ source }: { source: Source }) {
         return fail(e)
       }
       setTasks((ts) => ts.map((t) => (t.id === note.id ? { ...t, drawing: next } : t)))
-      undoStack.current.push({ id: stroke.id, noteId: note.id })
+      pushUndo({ kind: 'add', ref: { id: stroke.id, noteId: note.id } })
       markDirty(note.id, 'drawing')
       return
     }
 
     const stroke: Stroke = { ...base, p: simplify(points, eps).map(round1) }
     setStrokes((ss) => [...ss, stroke])
-    undoStack.current.push({ id: stroke.id })
+    pushUndo({ kind: 'add', ref: { id: stroke.id } })
     if (!sheetId) return
     setSave({ kind: 'saving' })
     void enqueue(async () => {
@@ -954,13 +970,11 @@ export function BoardView({ source }: { source: Source }) {
   const removeStrokes = (ids: string[]) => {
     const gone = new Set(ids)
     setStrokes((ss) => ss.filter((s) => !gone.has(s.id)))
-    undoStack.current = undoStack.current.filter((u) => !gone.has(u.id))
   }
 
   const removeNoteStrokes = (noteId: string, ids: string[]) => {
     const gone = new Set(ids)
     setTasks((ts) => ts.map((t) => (t.id === noteId ? { ...t, drawing: (t.drawing ?? []).filter((s) => !gone.has(s.id)) } : t)))
-    undoStack.current = undoStack.current.filter((u) => !gone.has(u.id))
     markDirty(noteId, 'drawing')
   }
 
@@ -978,7 +992,10 @@ export function BoardView({ source }: { source: Source }) {
     })
   }
 
-  const onStrokeMove = (ref: StrokeRef, p: number[]) => {
+  const findStroke = (ref: { id: string; noteId?: string }): Stroke | undefined =>
+    ref.noteId ? tasksRef.current.find((t) => t.id === ref.noteId)?.drawing?.find((s) => s.id === ref.id) : strokesRef.current.find((s) => s.id === ref.id)
+
+  const setStrokePoints = (ref: { id: string; noteId?: string }, p: number[]) => {
     if (ref.noteId) {
       setTasks((ts) => ts.map((t) => (t.id === ref.noteId ? { ...t, drawing: (t.drawing ?? []).map((s) => (s.id === ref.id ? { ...s, p } : s)) } : t)))
     } else {
@@ -986,7 +1003,7 @@ export function BoardView({ source }: { source: Source }) {
     }
   }
 
-  const onStrokeMoveEnd = (ref: StrokeRef) => {
+  const persistStrokeMove = (ref: { id: string; noteId?: string }) => {
     if (ref.noteId) return markDirty(ref.noteId, 'drawing')
     if (!sheetId) return
     dirtyStrokes.current.add(ref.id)
@@ -994,16 +1011,51 @@ export function BoardView({ source }: { source: Source }) {
     timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
   }
 
+  const onStrokeMove = (ref: StrokeRef, p: number[]) => {
+    if (moveFrom.current?.id !== ref.id) {
+      const cur = findStroke(ref)
+      moveFrom.current = cur ? { id: ref.id, p: [...cur.p] } : null
+    }
+    setStrokePoints(ref, p)
+  }
+
+  const onStrokeMoveEnd = (ref: StrokeRef) => {
+    if (moveFrom.current?.id === ref.id) pushUndo({ kind: 'move', ref: { id: ref.id, noteId: ref.noteId }, from: moveFrom.current.p })
+    moveFrom.current = null
+    persistStrokeMove(ref)
+  }
+
+  /** Arrow keys on a picked stroke: moves it by one grid step. A note's stroke may not leave its note entirely. */
+  const nudgeStroke = (dx: number, dy: number) => {
+    const ref = selectedStroke
+    const st = ref && findStroke(ref)
+    if (!ref || !st) return
+    const p = st.p.map((v, i) => Math.round((v + (i % 2 === 0 ? dx : dy)) * 10) / 10)
+    if (ref.noteId) {
+      const xs = p.filter((_, i) => i % 2 === 0)
+      const ys = p.filter((_, i) => i % 2 === 1)
+      if (Math.max(...xs) < 0 || Math.min(...xs) > NOTE_SIZE || Math.max(...ys) < 0 || Math.min(...ys) > NOTE_SIZE) return
+    }
+    onStrokeMove(ref, p)
+    onStrokeMoveEnd(ref)
+  }
+
   const deleteSelectedStroke = () => {
     const ref = selectedStroke
     if (!ref) return
+    const stroke = findStroke(ref)
     setSelectedStroke(null)
+    if (stroke) pushUndo({ kind: 'remove', items: [{ stroke, noteId: ref.noteId }] })
     if (ref.noteId) return removeNoteStrokes(ref.noteId, [ref.id])
     removeStrokes([ref.id])
     deleteStrokeRows([ref.id])
   }
 
   const onErase = (hits: { id: string; noteId?: string }[]) => {
+    for (const h of hits) {
+      const stroke = findStroke(h)
+      if (stroke) erasedItems.current.push({ stroke, noteId: h.noteId })
+    }
     const boardIds = hits.filter((h) => !h.noteId).map((h) => h.id)
     boardIds.forEach((id) => erased.current.add(id))
     if (boardIds.length) removeStrokes(boardIds)
@@ -1015,15 +1067,47 @@ export function BoardView({ source }: { source: Source }) {
   const onEraseEnd = () => {
     const ids = [...erased.current]
     erased.current.clear()
+    if (erasedItems.current.length) pushUndo({ kind: 'remove', items: erasedItems.current })
+    erasedItems.current = []
     deleteStrokeRows(ids)
   }
 
+  /** Undoes the last drawing action: a stroke added, erased or deleted, or moved. */
   const undoStroke = () => {
-    const last = undoStack.current[undoStack.current.length - 1]
-    if (!last) return
-    if (last.noteId) return removeNoteStrokes(last.noteId, [last.id])
-    removeStrokes([last.id])
-    deleteStrokeRows([last.id])
+    const op = undoOps.current[undoOps.current.length - 1]
+    if (!op) return
+    undoOps.current = undoOps.current.slice(0, -1)
+    setUndoLen(undoOps.current.length)
+    setSelectedStroke(null)
+    if (op.kind === 'add') {
+      if (op.ref.noteId) return removeNoteStrokes(op.ref.noteId, [op.ref.id])
+      removeStrokes([op.ref.id])
+      return deleteStrokeRows([op.ref.id])
+    }
+    if (op.kind === 'move') {
+      setStrokePoints(op.ref, op.from)
+      return persistStrokeMove(op.ref)
+    }
+    for (const { stroke, noteId } of op.items) {
+      if (noteId) {
+        if (!tasksRef.current.some((t) => t.id === noteId)) continue // the note is gone
+        setTasks((ts) => ts.map((t) => (t.id === noteId ? { ...t, drawing: [...(t.drawing ?? []), stroke] } : t)))
+        markDirty(noteId, 'drawing')
+      } else {
+        setStrokes((ss) => [...ss, stroke])
+        if (sheetId) {
+          setSave({ kind: 'saving' })
+          void enqueue(async () => {
+            try {
+              await appendStroke(sheetId, stroke, 0.3)
+              setSave({ kind: 'saved' })
+            } catch (e) {
+              fail(e)
+            }
+          })
+        }
+      }
+    }
   }
 
   const toggleEdit = async () => {
@@ -1204,6 +1288,49 @@ export function BoardView({ source }: { source: Source }) {
     setTasks(applyZones(next, zonesRef.current))
     markDirty(id, 'status')
   }
+
+  // ---- keyboard (PC): arrows move, Delete deletes, Ctrl+C / Ctrl+V copy and paste a note ----
+  const clipboard = useRef<Task | null>(null)
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {})
+  keyHandler.current = (e) => {
+    const el = e.target as HTMLElement | null
+    if (!editable || e.defaultPrevented || picker || (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)))) return
+    const arrows: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+    const step = arrows[e.key]
+    const del = e.key === 'Delete' || e.key === 'Backspace'
+    const mod = e.ctrlKey || e.metaKey
+    if (tool === 'move' && selectedStroke) {
+      if (step) (e.preventDefault(), nudgeStroke(step[0] * GRID, step[1] * GRID))
+      else if (del) (e.preventDefault(), deleteSelectedStroke())
+    } else if (tool === 'none' && selectedId && !editingId) {
+      const task = tasksRef.current.find((t) => t.id === selectedId)
+      if (!task) return
+      if (step && !mod) {
+        e.preventDefault()
+        const at = { x: task.board.x + step[0] * GRID, y: task.board.y + step[1] * GRID }
+        setTasks((ts) => ts.map((t) => (t.id === task.id ? { ...t, board: { ...t.board, ...at } } : t)))
+        onMoveEnd(task.id, at)
+      } else if (del && !mod) {
+        e.preventDefault()
+        deleteSelected()
+      }
+    }
+    if (tool === 'none' && mod && e.key.toLowerCase() === 'c' && selectedId && !editingId) {
+      const task = tasksRef.current.find((t) => t.id === selectedId)
+      if (task) {
+        e.preventDefault()
+        clipboard.current = task
+      }
+    } else if (tool === 'none' && mod && e.key.toLowerCase() === 'v' && clipboard.current) {
+      e.preventDefault()
+      duplicateTask(clipboard.current)
+    }
+  }
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keyHandler.current(e)
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [])
 
   const zoomTo = (f: number | 'reset') =>
     setCamera((c) =>
@@ -1421,12 +1548,16 @@ export function BoardView({ source }: { source: Source }) {
               className="swatch"
               style={{ background: c }}
               aria-label={`Color ${c}`}
+              disabled={!!colorBy}
+              title={colorBy ? 'Notes are colored by a column: switch to "Manual color" to pick one' : undefined}
               onClick={() => onColor(c)}
             />
           ))}
           <button
             className="more-colors"
             aria-label="More colors"
+            disabled={!!colorBy}
+            title={colorBy ? 'Notes are colored by a column: switch to "Manual color" to pick one' : undefined}
             onClick={() => setPicker({ title: 'Note color', value: tasks.find((t) => t.id === selectedId)?.board.color ?? NOTE_COLORS[0], onChange: onColor })}
           >
             🎨
@@ -1501,7 +1632,7 @@ export function BoardView({ source }: { source: Source }) {
               🗑
             </button>
           )}
-          <button aria-label="Undo" onClick={undoStroke}>
+          <button aria-label="Undo" disabled={undoLen === 0} onClick={undoStroke}>
             ↶
           </button>
         </div>
