@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { DateField } from './DateField'
-import { isoOf, type Field } from './fields'
+import { inkFor, isoOf, type Field } from './fields'
 import type { ArrowMode, Task } from './types'
 
 /** A link seen from the note whose panel is open. */
@@ -19,27 +19,45 @@ export interface LinkRow {
 }
 
 interface Props {
-  task: Task
+  /** The notes the panel edits: one, or the selection (the first one is shown; `≠` marks what differs on the others). */
+  tasks: Task[]
   /** Every custom column, shown on notes or not. */
   fields: Field[]
   zoneNames: string[]
   editable: boolean
   onClose: () => void
   onTitle: (id: string, title: string) => void
-  onDescription: (id: string, text: string) => void
-  onStatus: (id: string, status: string) => void
-  onValue: (id: string, field: Field, input: string | boolean) => void
+  onDescription: (ids: string[], text: string) => void
+  onStatus: (ids: string[], status: string) => void
+  onValue: (ids: string[], field: Field, input: string | boolean) => void
   parentId: string | null
+  /** Some of the notes have another parent than the first one. */
+  parentDiffers: boolean
+  /** The emoji of columns, and the color of a value of a dropdown column. */
+  icons: Record<string, string>
+  colorOf: (key: string, value: string) => string | undefined
   /** Notes that may become this note's parent (not itself, not its own sub-tasks). */
   parentChoices: { id: string; title: string }[]
-  onParent: (id: string, parentId: string | null) => void
+  onParent: (ids: string[], parentId: string | null) => void
   subtasks: number
   links: LinkRow[]
   onRemoveLink: (id: string) => void
 }
 
 /** Side panel (bottom sheet on phones) with every column of the selected note. */
-export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitle, onDescription, onStatus, onValue, parentId, parentChoices, onParent, subtasks, links, onRemoveLink }: Props) {
+/** Marks a property whose value is not the same on every selected note. */
+const Diff = () => (
+  <i className="differs" title="Different on other selected notes" aria-label="differs">
+    {' '}
+    ≠
+  </i>
+)
+
+export function DetailPanel({ tasks, fields, zoneNames, editable, onClose, onTitle, onDescription, onStatus, onValue, parentId, parentDiffers, icons, colorOf, parentChoices, onParent, subtasks, links, onRemoveLink }: Props) {
+  const task = tasks[0]
+  const ids = tasks.map((t) => t.id)
+  const multi = tasks.length > 1
+  const differs = (get: (t: Task) => string) => multi && tasks.some((t) => get(t) !== get(task))
   // Escape closes the panel (and only the panel).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -58,7 +76,9 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
   return (
     <aside className="panel" aria-label="Note details">
       <header>
-        {editable ? (
+        {multi ? (
+          <h2>{tasks.length} notes</h2>
+        ) : editable ? (
           <input
             className="panel-title"
             value={task.title}
@@ -75,15 +95,17 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
 
       <div className="panel-body">
         <label>
-          <span>Description</span>
+          <span>
+            Description{differs((t) => t.description ?? '') && <Diff />}
+          </span>
           {editable ? (
-            <textarea rows={3} value={task.description ?? ''} onChange={(e) => onDescription(task.id, e.target.value)} />
+            <textarea rows={3} value={task.description ?? ''} onChange={(e) => onDescription(ids, e.target.value)} />
           ) : (
             <p className="read">{task.description || '—'}</p>
           )}
         </label>
 
-        {linksIn(task.description).length > 0 && (
+        {!multi && linksIn(task.description).length > 0 && (
           <div className="open-links">
             {linksIn(task.description).map((url, i) => (
               <a key={i} className="open-link" href={url} target="_blank" rel="noopener noreferrer" title={url}>
@@ -94,17 +116,19 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
         )}
 
         <label>
-          <span>Status</span>
+          <span>
+            Status{differs((t) => t.status ?? '') && <Diff />}
+          </span>
           {editable ? (
             zoneNames.length > 0 ? (
-              <select value={status} onChange={(e) => onStatus(task.id, e.target.value)}>
+              <select value={status} onChange={(e) => onStatus(ids, e.target.value)}>
                 <option value="" />
                 {statusChoices.map((n) => (
                   <option key={n}>{n}</option>
                 ))}
               </select>
             ) : (
-              <input value={status} onChange={(e) => onStatus(task.id, e.target.value)} />
+              <input value={status} onChange={(e) => onStatus(ids, e.target.value)} />
             )
           ) : (
             <p className="read">{status || '—'}</p>
@@ -113,9 +137,11 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
 
         {(editable || parentId) && (
           <label>
-            <span>Parent</span>
+            <span>
+              Parent{parentDiffers && <Diff />}
+            </span>
             {editable ? (
-              <select value={parentId ?? ''} onChange={(e) => onParent(task.id, e.target.value || null)}>
+              <select value={parentId ?? ''} onChange={(e) => onParent(ids, e.target.value || null)}>
                 <option value="">— none (free note)</option>
                 {parentChoices.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -128,9 +154,9 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
             )}
           </label>
         )}
-        {subtasks > 0 && <p className="read">{subtasks} sub-task{subtasks > 1 ? 's' : ''}</p>}
+        {!multi && subtasks > 0 && <p className="read">{subtasks} sub-task{subtasks > 1 ? 's' : ''}</p>}
 
-        {links.length > 0 && (
+        {!multi && links.length > 0 && (
           <div className="links-list">
             <span>Links</span>
             <ul>
@@ -150,7 +176,7 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
         )}
 
         {fields.map((f) => (
-          <FieldRow key={f.key} field={f} task={task} editable={editable} onValue={onValue} />
+          <FieldRow key={f.key} field={f} tasks={tasks} icon={icons[f.key]} colorOf={colorOf} editable={editable} onValue={onValue} />
         ))}
       </div>
     </aside>
@@ -159,18 +185,29 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
 
 function FieldRow({
   field,
-  task,
+  tasks,
+  icon,
+  colorOf,
   editable,
   onValue,
 }: {
   field: Field
-  task: Task
+  tasks: Task[]
+  icon?: string
+  colorOf: (key: string, value: string) => string | undefined
   editable: boolean
-  onValue: (id: string, field: Field, input: string | boolean) => void
+  onValue: (ids: string[], field: Field, input: string | boolean) => void
 }) {
+  const task = tasks[0]
   const v = task.values?.[field.key]
   const text = v === undefined ? '' : String(v)
-  const set = (input: string | boolean) => onValue(task.id, field, input)
+  const set = (input: string | boolean) => onValue(tasks.map((t) => t.id), field, input)
+  const cellOf = (t: Task) => String(t.values?.[field.key] ?? '')
+  const differs = tasks.length > 1 && tasks.some((t) => cellOf(t) !== cellOf(task))
+  const tint = (value: string) => {
+    const c = field.type === 'select' && value ? colorOf(field.key, value) : undefined
+    return c ? { background: c, color: inkFor(c) } : undefined
+  }
 
   let control: React.ReactNode
   if (!editable) {
@@ -191,10 +228,12 @@ function FieldRow({
   } else if (field.type === 'select') {
     const options = field.options ?? []
     control = (
-      <select value={text} onChange={(e) => set(e.target.value)}>
+      <select value={text} style={tint(text)} onChange={(e) => set(e.target.value)}>
         <option value="" />
         {(text && !options.includes(text) ? [...options, text] : options).map((o) => (
-          <option key={o}>{o}</option>
+          <option key={o} style={tint(o)}>
+            {o}
+          </option>
         ))}
       </select>
     )
@@ -214,8 +253,9 @@ function FieldRow({
   return (
     <label className={field.type === 'checkbox' ? 'inline' : undefined} onClick={field.type === 'date' ? (e) => e.preventDefault() : undefined}>
       <span>
+        {icon ? `${icon} ` : ''}
         {field.label}
-        {field.shown && <i title="Shown on the note"> #</i>}
+        {differs && <Diff />}
       </span>
       {control}
     </label>

@@ -136,6 +136,8 @@ export function BoardView({ source }: { source: Source }) {
   const [viewMenu, setViewMenu] = useState(false)
   const [moreMenu, setMoreMenu] = useState(false)
   const [stampMenu, setStampMenu] = useState(false)
+  /** The details panel is open for the multi-selection. */
+  const [multiDetail, setMultiDetail] = useState(false)
   /** Emoji given to columns (board only), by column key; `knownIcons` are the ones that already have a row in `_board`. */
   const [colIcons, setColIcons] = useState<Record<string, string>>({})
   /** Rows of `_board` that already exist for column settings (`colicon:<key>`, `colshow:<key>`). */
@@ -931,21 +933,34 @@ export function BoardView({ source }: { source: Source }) {
   }
   const toggleStack = (id: string) => setStackOpen(id, !openRef.current.has(id))
 
-  /** Make `parent` the parent of `child` (null: detach). The stack spreads open and the child steps out next to its parent. */
-  const setParent = (child: string, parent: string | null) => {
-    if (parent && (parent === child || wouldCycle(parentsRef.current, child, parent))) return
+  /** Make `parent` the parent of the notes (null: detach them). The stack spreads open and each note steps out next to its parent. */
+  const setParentMany = (childIds: string[], parent: string | null) => {
+    const ok = childIds.filter((c) => !parent || (c !== parent && !wouldCycle(parentsRef.current, c, parent)))
+    if (!ok.length) return
     const p = parent ? tasksRef.current.find((t) => t.id === parent) : undefined
-    const spot = p ? freeSpot(tasksRef.current.filter((t) => t.id !== child), p.board.x + NOTE_SIZE + 20, p.board.y) : null
-    setTasks((ts) =>
-      ts.map((t) => (t.id === child ? { ...t, parent: parent ?? undefined, board: spot ? { ...t.board, ...spot } : t.board } : t)),
-    )
-    markDirty(child, 'parent')
-    if (spot) {
-      markDirty(child, 'board')
-      onMoveEnd(child) // it may have landed in another zone: take that zone's status, like a drop
+    // Place the notes one after the other, so that they do not land on the same free spot.
+    const spots = new Map<string, { x: number; y: number }>()
+    if (p) {
+      let occupied = tasksRef.current
+      for (const c of ok) {
+        const spot = freeSpot(occupied.filter((t) => t.id !== c), p.board.x + NOTE_SIZE + 20, p.board.y)
+        spots.set(c, spot)
+        occupied = occupied.map((t) => (t.id === c ? { ...t, board: { ...t.board, ...spot } } : t))
+      }
     }
+    const set = new Set(ok)
+    setTasks((ts) => ts.map((t) => (set.has(t.id) ? { ...t, parent: parent ?? undefined, board: spots.has(t.id) ? { ...t.board, ...spots.get(t.id)! } : t.board } : t)))
+    ok.forEach((c) => {
+      markDirty(c, 'parent')
+      const spot = spots.get(c)
+      if (spot) {
+        markDirty(c, 'board')
+        onMoveEnd(c, spot) // it may have landed in another zone: take that zone's status, like a drop
+      }
+    })
     if (parent) setStackOpen(parent, true)
   }
+  const setParent = (child: string, parent: string | null) => setParentMany([child], parent)
 
   setParentRef.current = setParent
   const stackKids = useMemo(() => childrenOf(parents), [parents])
@@ -1304,7 +1319,7 @@ export function BoardView({ source }: { source: Source }) {
   /** The color of each value of every dropdown column shown as a pill: the same rules as the legend. */
   const pillColors = useMemo(() => {
     const out = new Map<string, string>()
-    for (const f of shownFields.filter((x) => x.type === 'select')) {
+    for (const f of fields.filter((x) => x.type === 'select')) {
       const distinct = [...new Set(tasks.map((t) => rawOf(t.values?.[f.key] as Cell)).filter(Boolean))].sort()
       for (const t of tasks) {
         const chip = chipFor(f, t.values?.[f.key])
@@ -1316,7 +1331,7 @@ export function BoardView({ source }: { source: Source }) {
       }
     }
     return out
-  }, [shownFields, tasks, colorRules])
+  }, [fields, tasks, colorRules])
 
   const noteView = useCallback(
     (t: Task) => {
@@ -1352,30 +1367,34 @@ export function BoardView({ source }: { source: Source }) {
   const onChip = (chip: Chip) =>
     setFilter((f) => (f && f.key === chip.key && f.raw === chip.raw ? null : { key: chip.key, raw: chip.raw, text: chip.value, label: chip.label }))
 
-  const onDescription = (id: string, text: string) => {
-    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, description: text || undefined } : t)))
-    markDirty(id, 'description')
+  // The panel edits one note or several: every handler takes the ids of the notes to change.
+  const onDescription = (ids: string[], text: string) => {
+    const set = new Set(ids)
+    setTasks((ts) => ts.map((t) => (set.has(t.id) ? { ...t, description: text || undefined } : t)))
+    ids.forEach((id) => markDirty(id, 'description'))
   }
 
-  const onValue = (id: string, field: Field, input: string | boolean) => {
+  const onValue = (ids: string[], field: Field, input: string | boolean) => {
     const cell: Cell = toCell(field, input)
+    const set = new Set(ids)
     setTasks((ts) =>
       ts.map((t) => {
-        if (t.id !== id) return t
+        if (!set.has(t.id)) return t
         const values = { ...t.values }
         if (cell === '') delete values[field.key]
         else values[field.key] = cell
         return { ...t, values }
       }),
     )
-    markCol(id, field.key)
+    ids.forEach((id) => markCol(id, field.key))
   }
 
-  /** Changing the status in the panel moves the note into the zone of that name, like a drop would. */
-  const onStatus = (id: string, status: string) => {
-    const next = tasksRef.current.map((t) => (t.id === id ? { ...t, status: status || undefined, autoPlaced: true } : t))
+  /** Changing the status in the panel moves the notes into the zone of that name, like a drop would. */
+  const onStatus = (ids: string[], status: string) => {
+    const set = new Set(ids)
+    const next = tasksRef.current.map((t) => (set.has(t.id) ? { ...t, status: status || undefined, autoPlaced: true } : t))
     setTasks(applyZones(next, zonesRef.current))
-    markDirty(id, 'status')
+    ids.forEach((id) => markDirty(id, 'status'))
   }
 
   // ---- multi-selection ----
@@ -1390,6 +1409,7 @@ export function BoardView({ source }: { source: Source }) {
     const unique = items.filter((i) => !seen.has(selKey(i)) && seen.add(selKey(i)))
     setMulti(unique)
     if (unique.length) {
+      if (detailId || multiDetail) setMultiDetail(true) // an open panel follows the selection
       setSelectedId(null)
       setSelectedZoneId(null)
       setSelectedStroke(null)
@@ -1714,6 +1734,9 @@ export function BoardView({ source }: { source: Source }) {
   useEffect(() => {
     if (tool !== 'none' && tool !== 'select' && tool !== 'move') setMulti([])
   }, [tool])
+  useEffect(() => {
+    if (multi.length === 0) setMultiDetail(false)
+  }, [multi])
 
   // A tap anywhere outside an open menu closes it.
   useEffect(() => {
@@ -1753,7 +1776,7 @@ export function BoardView({ source }: { source: Source }) {
           setSelectedId(id)
           setSelectedZoneId(null)
           setSelectedLinkId(null)
-          if (id && (detailId || zoneDetailId)) {
+          if (id && (detailId || zoneDetailId || multiDetail)) {
             // A details panel is open: it follows the selection.
             setDetailId(id)
             setZoneDetailId(null)
@@ -1798,9 +1821,10 @@ export function BoardView({ source }: { source: Source }) {
           setMulti([])
           setSelectedZoneId(id)
           setSelectedId(null)
-          if (detailId || zoneDetailId) {
+          if (detailId || zoneDetailId || multiDetail) {
             setZoneDetailId(id)
             setDetailId(null)
+            setMultiDetail(false)
           }
         }}
         onZoneDragStart={onZoneDragStart}
@@ -2017,6 +2041,15 @@ export function BoardView({ source }: { source: Source }) {
                 🎨
               </button>
               <span className="sep" />
+              <button onClick={() => setMultiDetail(true)}>☰ Details</button>
+              {multi.some((i) => i.kind === 'note' && tasks.find((t) => t.id === i.id)?.parent) && (
+                <button
+                  aria-label="Unparent"
+                  onClick={() => setParentMany(multi.filter((i) => i.kind === 'note' && tasks.find((t) => t.id === i.id)?.parent).map((i) => i.id), null)}
+                >
+                  ⇱ Unparent
+                </button>
+              )}
               <button aria-label="Stamps" onClick={() => setStampMenu(true)}>
                 ★ Stamps
               </button>
@@ -2290,25 +2323,35 @@ export function BoardView({ source }: { source: Source }) {
         />
       )}
 
-      {detailId && tasks.find((t) => t.id === detailId) && (
-        <DetailPanel
-          task={tasks.find((t) => t.id === detailId)!}
-          fields={fields}
-          zoneNames={zones.map((z) => z.name).filter(Boolean)}
-          editable={editable}
-          onClose={() => setDetailId(null)}
-          onTitle={onRename}
-          onDescription={onDescription}
-          onStatus={onStatus}
-          onValue={onValue}
-          parentId={parents[detailId] ?? null}
-          parentChoices={tasks.filter((t) => t.id !== detailId && !wouldCycle(parents, detailId, t.id)).map((t) => ({ id: t.id, title: t.title }))}
-          onParent={setParent}
-          subtasks={(stackKids.get(detailId) ?? []).length}
-          links={linksOf(detailId)}
-          onRemoveLink={(id) => removeLinks([id])}
-        />
-      )}
+      {(() => {
+        const noteIds = multiDetail ? multi.filter((i) => i.kind === 'note').map((i) => i.id) : detailId ? [detailId] : []
+        const shown = noteIds.flatMap((id) => tasks.find((t) => t.id === id) ?? [])
+        if (!shown.length) return null
+        const idSet = new Set(shown.map((t) => t.id))
+        const first = shown[0]
+        return (
+          <DetailPanel
+            tasks={shown}
+            fields={fields}
+            zoneNames={zones.map((z) => z.name).filter(Boolean)}
+            editable={editable}
+            onClose={() => (multiDetail ? setMultiDetail(false) : setDetailId(null))}
+            onTitle={onRename}
+            onDescription={onDescription}
+            onStatus={onStatus}
+            onValue={onValue}
+            parentId={parents[first.id] ?? null}
+            parentDiffers={shown.some((t) => (parents[t.id] ?? null) !== (parents[first.id] ?? null))}
+            icons={colIcons}
+            colorOf={(key, value) => pillColors.get(`${key}|${rawOf(value)}`)}
+            parentChoices={tasks.filter((t) => !idSet.has(t.id) && shown.every((c) => !wouldCycle(parents, c.id, t.id))).map((t) => ({ id: t.id, title: t.title }))}
+            onParent={setParentMany}
+            subtasks={(stackKids.get(first.id) ?? []).length}
+            links={shown.length === 1 ? linksOf(first.id) : []}
+            onRemoveLink={(id) => removeLinks([id])}
+          />
+        )
+      })()}
 
       {stampMenu && (() => {
         const ids = new Set(stampTargets())

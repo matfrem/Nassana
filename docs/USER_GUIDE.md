@@ -35,6 +35,8 @@ In Edit mode:
 
 ### Details panel
 
+The panel stays open while you select other notes or zones: it follows the selection. Properties show the column's emoji (when it has one) and, for dropdowns, the color of each value.
+
 Title, description, status and every other column of the row. Fields use the right control: dropdown (values read from the
 Sheet's data validation, including lists in another range), checkbox, number, link, and a date field that works with the phone's
 numeric keypad (`15012030`), a 📅 calendar button and *Today / Tomorrow / +1 week / Clear* shortcuts. A note's links are listed
@@ -73,6 +75,7 @@ Right-click on a note selects it and opens its details. **Undo** in the drawing 
 - The bar then reads "N selected": colors for the selected notes, **Duplicate**, **Delete** (one confirmation), ✕ to clear. Esc or a tap on the background clears too.
 - Dragging any selected item (or the arrow keys) moves them all, snapped to the grid. A selected zone carries its notes and the strokes inside it, each moved once. Dragging a member never makes it a sub-task.
 - Ctrl+C / Ctrl+V on several notes pastes copies to the right of the group, with the same layout, the same sub-task structure and the links between them.
+- **☰ Details** in the selection bar opens the properties for all selected notes: the first note's values are shown, a **≠** marks a property that differs on the others, and any change is applied to all of them (description, status, dropdowns, dates, parent…). The title is not editable there. Setting a **Parent** makes every selected note a sub-task of it. **⇱ Unparent** also works on a selection.
 - Not covered yet (see [TODO](TODO.md)): undo of group moves and deletes, copying zones and strokes.
 
 ## Other tools: the ⋯ menu
