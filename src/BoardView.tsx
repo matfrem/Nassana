@@ -1518,6 +1518,13 @@ export function BoardView({ source }: { source: Source }) {
     }
   }
 
+  /** The Move button: the selection follows a drag made anywhere on the board (offset from where the drag began). */
+  const dragSelection = (dx: number, dy: number) => {
+    if (!multiRef.current.length) return
+    if (!group.current) group.current = buildGroup(selKey(multiRef.current[0]), { x: 0, y: 0 })
+    shiftGroup(group.current, dx, dy)
+  }
+
   const moveMulti = (dx: number, dy: number) => {
     if (!multiRef.current.length) return
     const first = multiRef.current[0]
@@ -1704,7 +1711,7 @@ export function BoardView({ source }: { source: Source }) {
     const del = e.key === 'Delete' || e.key === 'Backspace'
     const mod = e.ctrlKey || e.metaKey
     const key = e.key.toLowerCase()
-    if (multi.length && (tool === 'none' || tool === 'select' || tool === 'move')) {
+    if (multi.length && (tool === 'none' || tool === 'select' || tool === 'move' || tool === 'drag')) {
       if (step && !mod) (e.preventDefault(), moveMulti(step[0] * GRID, step[1] * GRID))
       else if (del && !mod) (e.preventDefault(), deleteMulti())
       else if (mod && key === 'c') {
@@ -1746,10 +1753,13 @@ export function BoardView({ source }: { source: Source }) {
   }, [])
 
   useEffect(() => {
-    if (tool !== 'none' && tool !== 'select' && tool !== 'move') setMulti([])
+    if (tool !== 'none' && tool !== 'select' && tool !== 'move' && tool !== 'drag') setMulti([])
   }, [tool])
   useEffect(() => {
-    if (multi.length === 0) setMultiDetail(false)
+    if (multi.length === 0) {
+      setMultiDetail(false)
+      setTool((t) => (t === 'drag' ? 'none' : t))
+    }
   }, [multi])
 
   // A tap anywhere outside an open menu closes it.
@@ -1785,6 +1795,8 @@ export function BoardView({ source }: { source: Source }) {
         editingId={editingId}
         multiKeys={multiKeys}
         onToggleSel={toggleSel}
+        onGroupDrag={dragSelection}
+        onGroupDragEnd={() => groupApi.current.end()}
         onSelectRect={selectRect}
         onSelect={(id, additive) => {
           if (id && additive) return toggleSel({ kind: 'note', id })
@@ -2089,6 +2101,9 @@ export function BoardView({ source }: { source: Source }) {
       {editable && tool !== 'select' && multi.length > 0 && !editingId && (
         <div className="selection-bar">
           <span className="multi-count">{multi.length} selected</span>
+          <button className={tool === 'drag' ? 'active' : ''} aria-pressed={tool === 'drag'} aria-label="Move selection" onClick={() => setTool((t) => (t === 'drag' ? 'none' : 'drag'))}>
+            ✥ Move
+          </button>
           {multi.some((i) => i.kind === 'note') && (
             <>
               {!colorBy && (

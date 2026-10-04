@@ -171,3 +171,43 @@ test('Ctrl+A selects every visible note', async ({ page }) => {
   await page.keyboard.press('Control+a')
   await expect(page.getByText(/^4 selected$/)).toBeVisible()
 })
+
+test('the Move button of the selection bar drags the whole selection from anywhere (strokes too)', async ({ page }) => {
+  const s = sheet()
+  await openBoard(page, s)
+  await startEditing(page)
+  // select the stroke and Alpha with a rectangle
+  const a = await corner(page, 'Alpha')
+  await page.keyboard.down('Shift')
+  await page.mouse.move(a.x - 60, a.y - 30)
+  await page.mouse.down()
+  await page.mouse.move(a.x + 160, a.y + 640, { steps: 10 })
+  await page.mouse.up()
+  await page.keyboard.up('Shift')
+  await expect(page.getByText(/selected/).first()).toBeVisible()
+  const before = JSON.parse(s.board('stroke')[0]).p
+  const alphaBefore = xy(s, 'a')
+  await page.getByRole('button', { name: 'Move selection' }).click()
+  await expect(page.getByRole('button', { name: 'Move selection' })).toHaveAttribute('aria-pressed', 'true')
+  await drag(page, { x: 900, y: 700 }, { x: 900, y: 790 }) // from empty space, far from the selected things
+  await expect.poll(() => JSON.parse(s.board('stroke')[0]).p[1]).toBeGreaterThan(before[1] + 40)
+  await expect.poll(() => xy(s, 'a')[1]).toBeGreaterThan(alphaBefore[1] + 40)
+  await page.getByRole('button', { name: 'Move selection' }).click() // back to normal
+  await expect(page.getByRole('button', { name: 'Move selection' })).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('a selection of strokes only still has Move and Delete', async ({ page }) => {
+  const s = sheet()
+  await openBoard(page, s)
+  await startEditing(page)
+  await page.getByRole('button', { name: 'More tools' }).click()
+  await page.getByRole('button', { name: /Select/ }).click()
+  const box = (await page.locator('.ink path:not(.stroke-halo)').first().boundingBox())!
+  await page.mouse.move(Math.max(2, box.x - 10), Math.max(70, box.y - 10))
+  await page.mouse.down()
+  await page.mouse.move(Math.min(1090, box.x + box.width + 10), Math.min(840, box.y + box.height + 10), { steps: 8 })
+  await page.mouse.up()
+  await page.locator('.zone-bar').getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('button', { name: 'Move selection' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Delete selection' })).toBeVisible()
+})

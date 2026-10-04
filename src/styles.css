@@ -808,3 +808,4 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .cfg .cfg-preview .chip.tone-orange { background: #f59e0b; border-color: #f59e0b; color: #1f2328; }
 .cfg .cfg-preview .chip.tone-green { background: #2da44e; border-color: #2da44e; color: #fff; }
 .cfg .cfg-preview .stack-badge { display: none; }
+.selection-bar button.active { background: var(--accent) !important; border-color: var(--accent); color: #fff; }

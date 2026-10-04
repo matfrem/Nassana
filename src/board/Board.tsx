@@ -12,7 +12,7 @@ import { StampStack } from './StampStack'
 import { zoneOfNote } from './zones'
 import { ZoneView } from './ZoneView'
 
-export type Tool = 'none' | 'pen' | 'eraser' | 'zone' | 'move' | 'link' | 'select'
+export type Tool = 'none' | 'pen' | 'eraser' | 'zone' | 'move' | 'link' | 'select' | 'drag'
 
 /** One member of a multi-selection. */
 export interface SelItem {
@@ -45,6 +45,9 @@ interface Props {
   /** Multi-selection: keys (`n:`, `z:`, `s:` + id) of the selected items, a toggle, and a rectangle pick. */
   multiKeys: ReadonlySet<string>
   onToggleSel: (item: SelItem) => void
+  /** The Move button of the selection bar: dragging anywhere moves the whole selection by (dx, dy) world units. */
+  onGroupDrag: (dx: number, dy: number) => void
+  onGroupDragEnd: () => void
   onSelectRect: (items: SelItem[], additive: boolean) => void
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
@@ -103,7 +106,7 @@ interface Props {
 const TAP_SLOP = 4
 const ERASER_RADIUS = 12 // screen px
 
-type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move' | 'link' | 'select'
+type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move' | 'link' | 'select' | 'dragsel'
 
 export function Board({
   tasks,
@@ -119,6 +122,8 @@ export function Board({
   onSelect,
   multiKeys,
   onToggleSel,
+  onGroupDrag,
+  onGroupDragEnd,
   onSelectRect,
   onRename,
   onRenameDone,
@@ -182,6 +187,7 @@ export function Board({
   const linkFrom = useRef<string | null>(null)
   const [liveLink, setLiveLink] = useState<LiveLink | null>(null)
   const zoneStart = useRef<{ x: number; y: number } | null>(null)
+  const selDrag = useRef<{ sx: number; sy: number; moved: boolean } | null>(null)
   const selStart = useRef<{ x: number; y: number } | null>(null)
   const [liveSel, setLiveSel] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [liveZone, setLiveZone] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
@@ -372,6 +378,11 @@ export function Board({
         mode.current = 'link'
         updateLive(w.x, w.y)
       } else mode.current = 'pan'
+    } else if (tool === 'drag') {
+      // The selection follows the finger, wherever it is pressed.
+      const w = world(e)
+      selDrag.current = { sx: w.x, sy: w.y, moved: false }
+      mode.current = 'dragsel'
     } else if (tool === 'select' || (tool === 'none' && editable && e.shiftKey)) {
       // Drag a rectangle to select what it touches (Shift+drag on the background with a mouse, or the Select tool).
       selStart.current = world(e)
@@ -447,6 +458,12 @@ export function Board({
       if (!m.moved && Math.hypot(dx, dy) * camRef.current.zoom < TAP_SLOP) return
       m.moved = true
       onStrokeMove(m.ref, m.orig.map((v, i) => Math.round((v + (i % 2 === 0 ? dx : dy)) * 10) / 10))
+    } else if (mode.current === 'dragsel' && selDrag.current) {
+      const d = selDrag.current
+      const w = world(e)
+      if (!d.moved && Math.hypot(w.x - d.sx, w.y - d.sy) * camRef.current.zoom < TAP_SLOP) return
+      d.moved = true
+      onGroupDrag(Math.round((w.x - d.sx) / GRID) * GRID, Math.round((w.y - d.sy) / GRID) * GRID)
     } else if (mode.current === 'select' && selStart.current) {
       const a = selStart.current
       const w = world(e)
@@ -481,6 +498,9 @@ export function Board({
     } else if (mode.current === 'move') {
       if (moving.current?.moved) onStrokeMoveEnd(moving.current.ref)
       moving.current = null
+    } else if (mode.current === 'dragsel') {
+      if (selDrag.current?.moved) onGroupDragEnd()
+      selDrag.current = null
     } else if (mode.current === 'select') {
       const r = liveSel
       selStart.current = null
@@ -574,7 +594,7 @@ export function Board({
       ref={ref}
       className="viewport"
       style={{
-        cursor: tool !== 'none' ? 'crosshair' : panning ? 'grabbing' : 'grab',
+        cursor: tool === 'drag' ? 'move' : tool !== 'none' ? 'crosshair' : panning ? 'grabbing' : 'grab',
         backgroundSize: `${gridSize}px ${gridSize}px`,
         backgroundImage: background.kind !== 'dots' || gridSize < 12 ? 'none' : undefined, // dots closer than that only shimmer
         backgroundColor: background.kind === 'color' ? background.color : undefined,
