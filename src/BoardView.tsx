@@ -1923,7 +1923,15 @@ export function BoardView({ source }: { source: Source }) {
         )}
         {editable && (
           <span className="menu-anchor">
-            <button className={tool === 'zone' || tool === 'select' ? 'primary' : ''} aria-label="More tools" onClick={() => setMoreMenu((v) => !v)}>
+            <button
+              className={tool === 'zone' || tool === 'select' ? 'primary' : ''}
+              aria-label="More tools"
+              onClick={() => {
+                setMoreMenu((v) => !v)
+                setViewMenu(false)
+                setFilterMenu(false)
+              }}
+            >
               ⋯
             </button>
             {moreMenu && (
@@ -1958,7 +1966,12 @@ export function BoardView({ source }: { source: Source }) {
           </span>
         )}
         <span className="menu-anchor">
-          <button aria-label="View options" title="View" onClick={() => setViewMenu((v) => !v)}>
+          <button aria-label="View options" title="View" onClick={() => {
+              setViewMenu((v) => !v)
+              setFilterMenu(false)
+              setMoreMenu(false)
+            }}
+          >
             👁
           </button>
           {viewMenu && (
@@ -2008,7 +2021,12 @@ export function BoardView({ source }: { source: Source }) {
         </span>
         {(fields.length > 0 || hasStatus || !!sheetId) && (
           <span className="menu-anchor">
-            <button aria-label="Filter options" title="Filter" className={colorBy ? 'primary' : ''} onClick={() => setFilterMenu((v) => !v)}>
+            <button aria-label="Filter options" title="Filter" className={colorBy ? 'primary' : ''} onClick={() => {
+                setFilterMenu((v) => !v)
+                setViewMenu(false)
+                setMoreMenu(false)
+              }}
+            >
               ◐
             </button>
             {filterMenu && (
@@ -2064,7 +2082,7 @@ export function BoardView({ source }: { source: Source }) {
         <button onClick={() => zoomTo(1.25)} aria-label="Zoom in">+</button>
       </div>
 
-      {editable && multi.length > 0 && !editingId && (
+      {editable && tool !== 'select' && multi.length > 0 && !editingId && (
         <div className="selection-bar">
           <span className="multi-count">{multi.length} selected</span>
           {multi.some((i) => i.kind === 'note') && (
@@ -2124,9 +2142,9 @@ export function BoardView({ source }: { source: Source }) {
         </div>
       )}
 
-      {editable && tool === 'select' && multi.length === 0 && (
+      {editable && tool === 'select' && (
         <div className="selection-bar zone-bar">
-          <span>Drag a rectangle to select; tap a note or zone to add it</span>
+          <span>{multi.length ? `${multi.length} selected. Tap to add or remove; Done to act on them` : 'Drag a rectangle to select; tap a note or zone to add it'}</span>
           <button onClick={() => setTool('none')}>Done</button>
         </div>
       )}

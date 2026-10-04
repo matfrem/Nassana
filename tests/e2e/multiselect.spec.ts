@@ -100,7 +100,9 @@ test('the Select tool: a tap toggles a note, a drag selects a rectangle, colors 
   await page.mouse.click(a.x, a.y)
   const g = await noteCenter(page, 'Gamma')
   await page.mouse.click(g.x, g.y)
-  await expect(page.getByText('2 selected')).toBeVisible()
+  await expect(page.getByText(/^2 selected/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Color #FFADAD' })).toHaveCount(0) // the action bar waits for Done
+  await page.locator('.zone-bar').getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Color #FFADAD' }).click()
   await expect
     .poll(() => ['a', 'c'].map((id) => JSON.parse(String(s.rows('Tasks').find((r) => r[0] === id)![2])).color))
@@ -125,13 +127,12 @@ test('a selected zone, a note and a stroke move together; notes inside the zone 
   await page.mouse.down()
   await page.mouse.move(zoneBox.x + zoneBox.width + 20, zoneBox.y + zoneBox.height + 20, { steps: 10 })
   await page.mouse.up()
-  const count = await page.locator('.multi-count').textContent()
+  const count = await page.locator('.zone-bar span').textContent()
   expect(Number.parseInt(count ?? '0')).toBeGreaterThanOrEqual(4)
 
   const zoneBefore = JSON.parse(s.board('zone')[0])
   const insideBefore = xy(s, 'e')
-  await page.getByRole('button', { name: 'More tools' }).click() // leave the Select tool, keep the selection
-  await page.getByRole('button', { name: /Select/ }).click()
+  await page.locator('.zone-bar').getByRole('button', { name: 'Done' }).click() // leave the Select tool, keep the selection
   const alpha = await noteCenter(page, 'Alpha')
   await drag(page, alpha, { x: alpha.x + 80, y: alpha.y + 80 })
   await expect.poll(() => JSON.parse(s.board('zone')[0]).x).toBeGreaterThan(zoneBefore.x)
