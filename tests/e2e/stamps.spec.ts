@@ -66,6 +66,7 @@ test('stamps follow a duplicate, and apply to every note of a multi-selection', 
   await star.click()
   await expect(page.locator('.stamps .stamp', { hasText: '⭐' })).toHaveCount(3) // all three notes
   await expect(star).toHaveAttribute('aria-pressed', 'true')
+  await page.waitForTimeout(450) // (two quick taps would be a double tap)
   await star.click() // everyone has it: removes it from all
   await expect(page.locator('.stamps .stamp', { hasText: '⭐' })).toHaveCount(0)
   await expect(page.locator('.stamps .stamp', { hasText: '🔥' })).toHaveCount(2)
@@ -96,4 +97,22 @@ test('stamps are big, and "Show stamps" / "Show property chips" in the View menu
   await page.locator('.note').first().waitFor()
   await expect(page.locator('.stamps')).toHaveCount(0)
   await expect(page.locator('.chip')).toHaveCount(0)
+})
+
+test('a double tap on a stamp toggles it once and closes the menu', async ({ page }) => {
+  const s = sheet()
+  await openBoard(page, s)
+  await startEditing(page)
+  await select(page, 'Alpha')
+  await page.getByRole('button', { name: 'Stamps' }).click()
+  await page.getByRole('button', { name: 'Stamp Fire' }).dblclick()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.stamps .stamp')).toHaveText(['🔥'])
+  await expect.poll(() => cell(s, 'a')).toBe('fire')
+  // and again on a stamp that is already there: it is removed, the menu closes
+  await page.getByRole('button', { name: 'Stamps' }).click()
+  await page.getByRole('button', { name: 'Stamp Fire' }).dblclick()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.stamps')).toHaveCount(0)
+  await expect.poll(() => cell(s, 'a')).toBe('')
 })

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { STAMPS } from './stamps'
 
 interface Props {
@@ -11,8 +11,21 @@ interface Props {
   onClose: () => void
 }
 
-/** Bottom sheet with the grid of stamps: a tap adds the stamp, another removes it. Stays open to stamp several. */
+/** Bottom sheet with the grid of stamps: a tap adds the stamp, another removes it, a double tap does it and closes the sheet. Stays open to stamp several. */
 export function StampPicker({ title, active, some, onToggle, onClose }: Props) {
+  /** The last tap, to recognise a double tap (mouse or touch). */
+  const last = useRef<{ id: string; t: number } | null>(null)
+  const tap = (id: string) => {
+    const prev = last.current
+    if (prev && prev.id === id && Date.now() - prev.t < 350) {
+      last.current = null
+      onClose() // a double tap: the first tap already toggled the stamp, so just close
+    } else {
+      last.current = { id, t: Date.now() }
+      onToggle(id)
+    }
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -41,7 +54,7 @@ export function StampPicker({ title, active, some, onToggle, onClose }: Props) {
               aria-label={`Stamp ${s.label}`}
               aria-pressed={active.has(s.id)}
               title={s.label}
-              onClick={() => onToggle(s.id)}
+              onClick={() => tap(s.id)}
             >
               {s.emoji}
             </button>
