@@ -20,6 +20,10 @@ export interface ViewState {
   camera: Camera | null
   /** Draw the dotted links between notes (sub-task lines are always drawn). */
   showLinks: boolean
+  /** Draw the stamps on notes. */
+  showStamps: boolean
+  /** Draw the property pills on notes (when zoomed in enough). */
+  showChips: boolean
 }
 
 const KEY = (sheetId: string) => `nassana.view.${sheetId}`
@@ -30,7 +34,7 @@ const isRule = (r: unknown): r is HideRule =>
 const isCamera = (c: unknown): c is Camera =>
   !!c && typeof c === 'object' && ['x', 'y', 'zoom'].every((k) => Number.isFinite((c as Record<string, unknown>)[k]))
 
-const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true })
+const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true, showStamps: true, showChips: true })
 
 function readJson(key: string): unknown {
   try {
@@ -51,6 +55,8 @@ export function loadView(sheetId: string | null): ViewState {
       only: isRule(v.only) ? v.only : null,
       camera: isCamera(v.camera) ? v.camera : null,
       showLinks: v.showLinks !== false,
+      showStamps: v.showStamps !== false,
+      showChips: v.showChips !== false,
     }
   }
   // Older versions kept these two in separate entries.

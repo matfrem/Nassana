@@ -138,7 +138,7 @@ The 🎨 button (next to the quick swatches of a note, a zone or the pen), the l
 
 The **◐** button:
 
-- **View → Fit to content** recenters the board; **View → Show links** hides or shows the dotted links (remembered per browser; the lines to sub-tasks stay). **Color notes by** a column (menu entries show `label (visible/total)` when a filter is active) or by **Status** (zone colors). A legend appears under the toolbar.
+- **View → Fit to content** recenters the board; **View → Show links**, **Show stamps** and **Show property chips** hide or show the dotted links, the stamps and the pills on notes (remembered per browser; the lines to sub-tasks stay). **Color notes by** a column (menu entries show `label (visible/total)` when a filter is active) or by **Status** (zone colors). A legend appears under the toolbar.
 - Where the colors come from, in order: a color you picked in the legend (Edit mode: the dots are color pickers; shared, stored in the
   Sheet), the zone of that name (status), the Sheet's own cell fill or conditional format, a tone for priorities, then a palette.
   The Sheets API cannot read the colors of dropdown *chips*, which is why you pick them here. A fill shared by several values of a
@@ -150,6 +150,9 @@ The **◐** button:
 - **⚙ Edit columns…** (Edit mode) opens the columns page.
 
 ## Columns page
+
+Each existing column has an **Emoji** dropdown: the emoji is shown before the value in every pill of that column. It is saved in the board (`_board`), not in the Sheet, and applies at once (no Apply needed). **↗ Open in Google Sheets** at the bottom opens the Sheet in a new tab.
+
 
 Edits the real columns of the `Tasks` tab, like you would in Sheets:
 

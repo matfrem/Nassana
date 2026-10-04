@@ -18,3 +18,5 @@ export const ZONE_TITLE_SIZE = 26
 export const ZONE_TITLE_SIZES = { min: 14, max: 80 } as const
 /** Side of the (mostly empty) SVG layers for strokes and links, centred on the origin: big enough to never clip the drawing. */
 export const SPAN = 60_000
+/** Emoji a column can be given, shown before the value in its pills (stored in the board only). */
+export const COLUMN_ICONS = ['🏷️', '📅', '⏱️', '👤', '👥', '🎯', '🔥', '⭐', '📌', '🧩', '🧪', '🐞', '🎨', '🔊', '🎮', '💰', '📈', '🔗', '📦', '🧠', '💬', '🚩', '❤️', '🛡️']

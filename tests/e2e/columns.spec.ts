@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { FakeSheet } from './fakeSheet'
-import { board, openBoard, startEditing } from './helpers'
+import { board, note, openBoard, startEditing } from './helpers'
 
 function sheetWithColumns() {
   const s = new FakeSheet({
@@ -35,7 +35,7 @@ test('lists the columns with their types, and the ones the app manages', async (
   await openBoard(page, sheetWithColumns())
   await openColumns(page)
   expect(await names(page)).toEqual(['prio', 'notes', 'project'])
-  await expect(page.locator('.cfg-row:not(.system) select')).toHaveText(['TextNumberDateCheckboxDropdown', 'TextNumberDateCheckboxDropdown', 'TextNumberDateCheckboxDropdown'])
+  await expect(page.locator('.cfg-row:not(.system) select[aria-label="Type"]')).toHaveText(['TextNumberDateCheckboxDropdown', 'TextNumberDateCheckboxDropdown', 'TextNumberDateCheckboxDropdown'])
   await expect(page.locator('.cfg-row.system strong')).toHaveText(['id', 'title', 'board', 'drawing', 'status', 'description'])
   await expect(page.getByRole('button', { name: /^Apply/ })).toBeDisabled() // nothing to apply yet
 })
@@ -116,4 +116,24 @@ test('refuses to apply when the Sheet\'s columns changed since the page opened',
   await page.locator('.cfg-confirm').getByRole('button', { name: 'Apply' }).click()
   await expect(page.locator('.cfg .error')).toContainText('changed since you opened this page')
   expect(sheet.batches).toHaveLength(0)
+})
+
+test('a column can be given an emoji (saved in the board only), shown before the value in its pills; the Sheet link opens in a tab', async ({ page }) => {
+  const s = sheetWithColumns()
+  await openBoard(page, s)
+  await openColumns(page)
+  await row(page, 'project').getByLabel('Emoji').selectOption('🎯')
+  await expect.poll(() => s.rows('_board').find((r) => r[0] === 'colicon:project#')?.[2]).toBe('🎯')
+  expect(s.rows('Tasks')[0]).toEqual(['id', 'title', 'prio#', 'notes', 'project#', 'board', 'drawing', 'status']) // the Sheet's titles are untouched
+  const link = page.getByRole('link', { name: /Open in Google Sheets/ })
+  await expect(link).toHaveAttribute('href', /docs\.google\.com\/spreadsheets\/d\/.+\/edit/)
+  await expect(link).toHaveAttribute('target', '_blank')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(note(page, 'One').locator('.chip').filter({ hasText: 'BSN' })).toHaveText(/🎯.*BSN/)
+
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: '⚙ Edit columns…' }).click()
+  await page.locator('.cfg-row').first().waitFor()
+  await row(page, 'project').getByLabel('Emoji').selectOption('')
+  await expect.poll(() => s.rows('_board').filter((r) => r[0] === 'colicon:project#').length).toBe(0)
 })

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ColorPicker } from './ColorPicker'
-import { NOTE_COLORS } from './constants'
+import { COLUMN_ICONS, NOTE_COLORS } from './constants'
 import { chipFor, RESERVED, type Field } from './fields'
 import {
   applyColumns,
@@ -22,6 +22,9 @@ interface Props {
   /** The custom columns as the board understands them (types, dropdown values, colors). */
   fields: Field[]
   tasks: Task[]
+  /** Emoji of the columns (stored in the board only), by column key; `onIcon` sets one ('' removes it). */
+  icons: Record<string, string>
+  onIcon: (key: string, emoji: string) => void
   onClose: () => void
   /** The Sheet was changed: the board must reload. */
   onApplied: () => void
@@ -45,7 +48,7 @@ function draftsFrom(st: Structure, fields: Field[], tasks: Task[]): Draft[] {
   })
 }
 
-export function ColumnsPage({ sheetId, fields, tasks, onClose, onApplied }: Props) {
+export function ColumnsPage({ sheetId, fields, tasks, icons, onIcon, onClose, onApplied }: Props) {
   const [opened, setOpened] = useState<Structure | null>(null)
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [system, setSystem] = useState<SystemEdit[]>([])
@@ -186,6 +189,9 @@ export function ColumnsPage({ sheetId, fields, tasks, onClose, onApplied }: Prop
                 last={!drafts.slice(i + 1).some((x) => !x.deleted)}
                 error={errors.get(d.uid)}
                 count={d.index !== undefined ? (valueCounts[d.index] ?? 0) : 0}
+                iconKey={d.index !== undefined ? fields.find((f) => f.index === d.index)?.key : undefined}
+                icons={icons}
+                onIcon={onIcon}
                 onChange={(p) => patch(d.uid, p)}
                 onType={(t) => setType(d, t)}
                 onMove={(dir) => move(d.uid, dir)}
@@ -232,6 +238,10 @@ export function ColumnsPage({ sheetId, fields, tasks, onClose, onApplied }: Prop
                 </div>
               </div>
             ))}
+
+            <a className="open-sheet" href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/edit`} target="_blank" rel="noopener noreferrer">
+              ↗ Open in Google Sheets
+            </a>
           </>
         )}
       </div>
@@ -267,6 +277,9 @@ function Row({
   last,
   error,
   count,
+  iconKey,
+  icons,
+  onIcon,
   onChange,
   onType,
   onMove,
@@ -277,6 +290,10 @@ function Row({
   last: boolean
   error?: string
   count: number
+  /** Key of the existing column (new columns have none yet: the emoji can be chosen after Apply). */
+  iconKey?: string
+  icons: Record<string, string>
+  onIcon: (key: string, emoji: string) => void
   onChange: (p: Partial<Draft>) => void
   onType: (t: ColType) => void
   onMove: (dir: -1 | 1) => void
@@ -336,6 +353,19 @@ function Row({
           <input type="checkbox" checked={d.shown} onChange={(e) => onChange({ shown: e.target.checked })} />
           Show on notes
         </label>
+        {iconKey && (
+          <label className="flag">
+            Emoji
+            <select className="icon-pick" aria-label="Emoji" value={icons[iconKey] ?? ''} onChange={(e) => onIcon(iconKey, e.target.value)}>
+              <option value="">none</option>
+              {COLUMN_ICONS.map((i) => (
+                <option key={i} value={i}>
+                  {i}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flag">
           <input type="checkbox" checked={d.hidden} onChange={(e) => onChange({ hidden: e.target.checked })} />
           Hidden in the Sheet

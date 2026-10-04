@@ -7,7 +7,7 @@
 - Test the zoomed-out rendering on desktop and phones; if it still struggles, a simplified drawing mode below ~20 % zoom.
 
 - **Stamps, next steps**: filter / legend by stamp ("only the 🔥"); a custom or editable list of stamps; if a closed stack should show its sub-tasks' stamps, draw them at the *bottom* of the parent note (not at the top right, which would mix with its own stamps) — to decide when we see how busy it gets.
-- **Column emoji**: give a column an emoji that stands for it, shown before the value in every pill of that column. Stored only in the board (`_board`), never in the Sheet's column titles.
+- Column emoji: it is keyed by the column's header, so renaming a column in the Columns page drops its emoji (re-pick it); an emoji can only be chosen for existing columns (after Apply for new ones).
 
 ## Ideas
 - 🔒 on a note whose predecessor isn't in the last zone.

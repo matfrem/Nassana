@@ -437,6 +437,8 @@ export interface BoardData {
   colors: ColorRule[]
   /** Parents whose stack is spread open. */
   open: string[]
+  /** Emoji given to columns, by column key. */
+  icons: Record<string, string>
 }
 
 /** Reads strokes and zones. A Sheet without the `_board` tab simply has neither. */
@@ -445,7 +447,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     const res = (await api(
       `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
     )) as { values?: unknown[][] }
-    const out: BoardData = { strokes: [], zones: [], links: [], colors: [], open: [] }
+    const out: BoardData = { strokes: [], zones: [], links: [], colors: [], open: [], icons: {} }
     for (const r of (res.values ?? []).slice(1)) {
       const id = String(r[0] ?? '')
       const type = String(r[1] ?? '')
@@ -461,6 +463,9 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
       } else if (type === 'link') {
         const l = decodeLink(id, r[2])
         if (l) out.links.push(l)
+      } else if (type === 'colicon') {
+        const key = id.replace(/^colicon:/, '')
+        if (key && typeof r[2] === 'string' && r[2].trim()) out.icons[key] = r[2].trim()
       } else if (type === 'open') {
         const parent = id.replace(/^open:/, '')
         if (parent) out.open.push(parent)
@@ -468,7 +473,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     }
     return out
   } catch (e) {
-    if (isMissingTab(e)) return { strokes: [], zones: [], links: [], colors: [], open: [] }
+    if (isMissingTab(e)) return { strokes: [], zones: [], links: [], colors: [], open: [], icons: {} }
     throw e
   }
 }
@@ -491,7 +496,7 @@ async function createBoardTab(sheetId: string): Promise<void> {
 }
 
 /** Appends a row, creating the `_board` tab first if this is the Sheet's first one. */
-export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link' | 'color' | 'open', data: string): Promise<void> {
+export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link' | 'color' | 'open' | 'colicon', data: string): Promise<void> {
   const url = `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${DRAWING_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
   const body = { values: [[rowId, type, data]] }
   try {

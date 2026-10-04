@@ -31,6 +31,9 @@ interface Props {
   tasks: Task[]
   /** Draw the links between notes (the lines to sub-tasks are always drawn). */
   showLinks: boolean
+  /** Draw the stamps and the property pills of notes. */
+  showStamps: boolean
+  showChips: boolean
   editable: boolean
   onMove: (id: string, x: number, y: number) => void
   onMoveEnd: (id: string) => void
@@ -103,6 +106,8 @@ type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move' | 'lin
 export function Board({
   tasks,
   showLinks,
+  showStamps,
+  showChips,
   editable,
   onMove,
   onMoveEnd,
@@ -642,7 +647,7 @@ export function Board({
           return (
           <StickyNote
             key={t.id}
-            chips={v.chips}
+            chips={showChips ? v.chips : []}
             ghost={v.hidden}
             tuckedInto={home ?? null}
             subtasks={kids}
@@ -676,11 +681,11 @@ export function Board({
           // Stamps: stacked at the top right, sticking out; more than three go into a new column to the left.
           const cols = stampColumns(t.stamps ?? [])
           const v = noteView(t)
-          if (!cols.length || v.hidden || stack.tucked.has(t.id)) return null
+          if (!showStamps || !cols.length || v.hidden || stack.tucked.has(t.id)) return null
           return (
             <div key={`stamps-${t.id}`} className={`stamps${v.dim ? ' dim' : ''}`} style={{ transform: `translate(${t.board.x + NOTE_SIZE}px, ${t.board.y}px)` }}>
               {cols.map((col, ci) => (
-                <div key={ci} className="stamp-col" style={{ left: -30 - ci * 34 }}>
+                <div key={ci} className="stamp-col" style={{ left: -40 - ci * 51 }}>
                   {col.map((id) => (
                     <span key={id} className="stamp">
                       {stampEmoji(id)}

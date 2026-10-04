@@ -136,7 +136,20 @@ export function BoardView({ source }: { source: Source }) {
   const [viewMenu, setViewMenu] = useState(false)
   const [moreMenu, setMoreMenu] = useState(false)
   const [stampMenu, setStampMenu] = useState(false)
+  /** Emoji given to columns (board only), by column key; `knownIcons` are the ones that already have a row in `_board`. */
+  const [colIcons, setColIcons] = useState<Record<string, string>>({})
+  const knownIcons = useRef(new Set<string>())
+  const [showStamps, setShowStampsState] = useState(savedView.showStamps)
+  const [showChips, setShowChipsState] = useState(savedView.showChips)
   const [showLinks, setShowLinksState] = useState(savedView.showLinks)
+  const setShowStamps = (on: boolean) => {
+    setShowStampsState(on)
+    saveView(sheetId, { showStamps: on })
+  }
+  const setShowChips = (on: boolean) => {
+    setShowChipsState(on)
+    saveView(sheetId, { showChips: on })
+  }
   const setShowLinks = (on: boolean) => {
     setShowLinksState(on)
     saveView(sheetId, { showLinks: on })
@@ -265,6 +278,8 @@ export function BoardView({ source }: { source: Source }) {
           setZones(board.zones)
           setLinks(board.links)
           knownOpen.current = new Set(board.open)
+          setColIcons(board.icons)
+          knownIcons.current = new Set(Object.keys(board.icons))
           if (!background) setOpenStacks(new Set(board.open)) // a read-only viewer's own toggles survive the background refresh
           setColorRules(Object.fromEntries(board.colors.map((c) => [`${c.key}|${c.raw}`, c])))
           knownColors.current = new Set(board.colors.map(colorRowId))
@@ -1302,7 +1317,7 @@ export function BoardView({ source }: { source: Source }) {
       return {
         chips: shownFields.flatMap((f) => {
           const c = chipFor(f, t.values?.[f.key])
-          return c ? [f.type === 'select' ? { ...c, color: pillColors.get(`${f.key}|${c.raw}`) } : c] : []
+          return c ? [{ ...(f.type === 'select' ? { ...c, color: pillColors.get(`${f.key}|${c.raw}`) } : c), icon: colIcons[f.key] ?? c.icon }] : []
         }),
         dim: filter ? rawOf(valueOf(t, filter.key)) !== filter.raw : false,
         hidden: hidden.some((h) => rawOf(valueOf(t, h.key)) === h.raw),
@@ -1310,7 +1325,7 @@ export function BoardView({ source }: { source: Source }) {
         ink: inkFor(color), // a dark fill from the Sheet needs light text
       }
     },
-    [shownFields, filter, colorScheme, hidden, pillColors],
+    [shownFields, filter, colorScheme, hidden, pillColors, colIcons],
   )
 
   hiddenRef.current = (t) => noteView(t).hidden
@@ -1475,6 +1490,34 @@ export function BoardView({ source }: { source: Source }) {
   /** The notes the stamp menu acts on: the selected note, or every selected note. */
   const stampTargets = (): string[] =>
     multiRef.current.length ? multiRef.current.filter((i) => i.kind === 'note').map((i) => i.id) : selectedId ? [selectedId] : []
+
+  /** Gives a column an emoji ('' removes it): shown before the value in its pills, saved in the board only. */
+  const setColumnIcon = (key: string, emoji: string) => {
+    setColIcons((c) => {
+      const next = { ...c }
+      if (emoji) next[key] = emoji
+      else delete next[key]
+      return next
+    })
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        const row = `colicon:${key}`
+        if (emoji && knownIcons.current.has(key)) await updateBoardRows(sheetId, [{ id: row, data: emoji }])
+        else if (emoji) {
+          await appendBoardRow(sheetId, row, 'colicon', emoji)
+          knownIcons.current.add(key)
+        } else if (knownIcons.current.has(key)) {
+          await deleteBoardRows(sheetId, [row])
+          knownIcons.current.delete(key)
+        }
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        fail(e)
+      }
+    })
+  }
 
   /** Adds the stamp to the notes, or removes it from all of them when they all have it already. */
   const toggleStamp = (stamp: string) => {
@@ -1644,6 +1687,8 @@ export function BoardView({ source }: { source: Source }) {
       <Board
         tasks={tasks}
         showLinks={showLinks || tool === 'link'}
+        showStamps={showStamps}
+        showChips={showChips}
         editable={editable}
         onMove={onMove}
         onMoveEnd={onMoveEnd}
@@ -1825,6 +1870,14 @@ export function BoardView({ source }: { source: Source }) {
                 <label className="menu-check">
                   <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
                   Show links
+                </label>
+                <label className="menu-check">
+                  <input type="checkbox" checked={showStamps} onChange={(e) => setShowStamps(e.target.checked)} />
+                  Show stamps
+                </label>
+                <label className="menu-check">
+                  <input type="checkbox" checked={showChips} onChange={(e) => setShowChips(e.target.checked)} />
+                  Show property chips
                 </label>
                 {(fields.length > 0 || hasStatus) && (
                   <>
@@ -2147,6 +2200,8 @@ export function BoardView({ source }: { source: Source }) {
           sheetId={sheetId}
           fields={fields}
           tasks={tasks}
+          icons={colIcons}
+          onIcon={setColumnIcon}
           onClose={() => setShowColumns(false)}
           onApplied={() => {
             setShowColumns(false)

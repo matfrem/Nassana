@@ -78,3 +78,22 @@ test('stamps of a tucked sub-task are not drawn', async ({ page }) => {
   await openBoard(page, s)
   await expect(page.locator('.stamps')).toHaveCount(0)
 })
+
+test('stamps are big, and "Show stamps" / "Show property chips" in the View menu hide them (remembered)', async ({ page }) => {
+  const s = new FakeSheet({
+    Tasks: [['id', 'title', 'board', 'stamps', 'prio#'], ['a', 'Alpha', board(-100, -100), 'fire', 'High']],
+  })
+  await openBoard(page, s)
+  const stamp = (await page.locator('.stamp').first().boundingBox())!
+  expect(stamp.width).toBeGreaterThanOrEqual(55)
+  await expect(page.locator('.chip')).toHaveCount(1)
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByLabel('Show stamps').uncheck()
+  await page.getByLabel('Show property chips').uncheck()
+  await expect(page.locator('.stamps')).toHaveCount(0)
+  await expect(page.locator('.chip')).toHaveCount(0)
+  await page.reload()
+  await page.locator('.note').first().waitFor()
+  await expect(page.locator('.stamps')).toHaveCount(0)
+  await expect(page.locator('.chip')).toHaveCount(0)
+})
