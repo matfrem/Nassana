@@ -526,7 +526,10 @@ export function Board({
         // A tap with the Select tool: toggles the note or zone under it, or clears the selection.
         const target = e.target as Element | null
         const zoneId = target?.closest?.('.zone-header')?.parentElement?.getAttribute('data-zone-id')
-        if (tap.current.noteId) onToggleSel({ kind: 'note', id: tap.current.noteId })
+        const w = world(e)
+        const hit = strokeAt(w.x, w.y)
+        if (hit && !hit.ref.noteId) onToggleSel({ kind: 'stroke', id: hit.ref.id }) // a drawing on the board (it is drawn over the notes)
+        else if (tap.current.noteId) onToggleSel({ kind: 'note', id: tap.current.noteId })
         else if (zoneId) onToggleSel({ kind: 'zone', id: zoneId })
         else onSelectRect([], false)
       }

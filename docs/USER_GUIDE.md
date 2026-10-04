@@ -71,7 +71,7 @@ Right-click on a note selects it and opens its details. **Undo** in the drawing 
 ## Selecting several things at once (Edit mode)
 
 - **Computer**: Ctrl/⌘ or Shift + click adds or removes a note, a zone (its title strip) or a drawing stroke (with the Move tool); Shift + drag on the background draws a selection rectangle (notes and strokes it touches, zones it fully contains).
-- **Phone**: ⋯ → **⬚ Select**: tap notes or zones to add or remove them, drag to select a rectangle. While the Select tool is on, only its bar (with the count and **Done**) is shown; press **Done** to get the actions bar.
+- **Phone**: ⋯ → **⬚ Select**: tap notes, zones or drawing strokes to add or remove them, drag to select a rectangle. While the Select tool is on, only its bar (with the count and **Done**) is shown; press **Done** to get the actions bar.
 - The bar then reads "N selected": colors for the selected notes, **Duplicate**, **Delete** (one confirmation), ✕ to clear. Esc or a tap on the background clears too.
 - Dragging any selected item (or the arrow keys) moves them all, snapped to the grid. The **✥ Move** button of the bar (the only way on a phone, and for drawing strokes, which are not draggable in the normal mode) lets you drag **anywhere on the board** to move the whole selection; press it again to leave. A selected zone carries its notes and the strokes inside it, each moved once. Dragging a member never makes it a sub-task.
 - Ctrl+C / Ctrl+V on several notes pastes copies to the right of the group, with the same layout, the same sub-task structure and the links between them.

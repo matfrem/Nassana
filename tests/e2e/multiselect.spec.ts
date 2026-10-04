@@ -211,3 +211,37 @@ test('a selection of strokes only still has Move and Delete', async ({ page }) =
   await expect(page.getByRole('button', { name: 'Move selection' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Delete selection' })).toBeVisible()
 })
+
+test('with the Select tool a tap on a drawing adds it, another tap removes it', async ({ page }) => {
+  const s = sheet()
+  await openBoard(page, s)
+  await startEditing(page)
+  await page.getByRole('button', { name: 'More tools' }).click()
+  await page.getByRole('button', { name: /Select/ }).click()
+  const mid = await (async () => {
+    const b = (await page.locator('.ink path:not(.stroke-halo)').first().boundingBox())!
+    return { x: Math.min(1000, Math.max(20, b.x + b.width / 2)), y: Math.min(800, Math.max(100, b.y + b.height / 2)) }
+  })()
+  const a = await noteCenter(page, 'Alpha')
+  await page.mouse.click(a.x, a.y)
+  await expect(page.getByText(/^1 selected/)).toBeVisible()
+  // the stroke: tap on one of its points that is on screen
+  const pt = await page.locator('.ink path:not(.stroke-halo)').first().evaluate((el) => {
+    const path = el as SVGPathElement
+    for (let i = 0; i <= 20; i++) {
+      const p = path.getPointAtLength((path.getTotalLength() * i) / 20)
+      const m = path.getScreenCTM()!
+      const x = p.x * m.a + m.e
+      const y = p.y * m.d + m.f
+      if (x > 10 && x < 1050 && y > 80 && y < 780) return { x, y }
+    }
+    return null
+  })
+  expect(pt).not.toBeNull()
+  void mid
+  await page.mouse.click(pt!.x, pt!.y)
+  await expect(page.getByText(/^2 selected/)).toBeVisible()
+  await page.waitForTimeout(400)
+  await page.mouse.click(pt!.x, pt!.y)
+  await expect(page.getByText(/^1 selected/)).toBeVisible()
+})

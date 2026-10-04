@@ -2164,7 +2164,7 @@ export function BoardView({ source }: { source: Source }) {
 
       {editable && tool === 'select' && (
         <div className="selection-bar zone-bar">
-          <span>{multi.length ? `${multi.length} selected. Tap to add or remove; Done to act on them` : 'Drag a rectangle to select; tap a note or zone to add it'}</span>
+          <span>{multi.length ? `${multi.length} selected. Tap a note, zone or drawing to add or remove it; Done to act on them` : 'Drag a rectangle to select; tap a note, zone or drawing to add it'}</span>
           <button onClick={() => setTool('none')}>Done</button>
         </div>
       )}
