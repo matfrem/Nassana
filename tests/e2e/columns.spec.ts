@@ -87,7 +87,7 @@ test('applies renames, deletion, reordering, new columns and hiding in one reque
     'Delete column “notes” (1 value)',
     'Change the order of the columns',
     'Add the “description” column',
-    'Add column “sprint” (Dropdown, shown on notes)',
+    'Add column “sprint” (Dropdown)',
     'Rename “prio” to “priority”',
     'Change “project” to Dropdown',
     'Hide the “board” column in the Sheet',
@@ -96,14 +96,47 @@ test('applies renames, deletion, reordering, new columns and hiding in one reque
   await page.locator('.cfg-confirm').getByRole('button', { name: 'Apply' }).click()
   await expect(page.locator('.cfg')).toHaveCount(0)
 
-  expect(sheet.batches).toHaveLength(1) // one single request
-  const kinds = sheet.batches[0].map((r) => Object.keys(r)[0])
+  const structural = sheet.batches.filter((b) => !b.some((r) => 'addSheet' in r)) // (creating the _board tab is not a column change)
+  expect(structural).toHaveLength(1) // one single request
+  const kinds = structural[0].map((r) => Object.keys(r)[0])
   expect(kinds.filter((k) => k === 'deleteDimension')).toHaveLength(1)
   expect(kinds).toContain('moveDimension')
   expect(kinds).toContain('updateDimensionProperties')
   expect(kinds.filter((k) => k === 'addConditionalFormatRule').length).toBeGreaterThanOrEqual(3) // project: BSN, TZ; sprint: S1
-  const headers = sheet.batches[0].filter((r) => 'updateCells' in r).map((r) => (r as any).updateCells.rows[0].values[0].userEnteredValue.stringValue)
-  expect(headers).toEqual(expect.arrayContaining(['description', 'sprint#', 'priority#']))
+  const headers = structural[0].filter((r) => 'updateCells' in r).map((r) => (r as any).updateCells.rows[0].values[0].userEnteredValue.stringValue)
+  expect(headers).toEqual(expect.arrayContaining(['description', 'sprint', 'priority#']))
+  expect(headers).not.toContain('sprint#') // "shown on notes" lives in the board, not in the header
+  await expect.poll(() => s2(sheet, 'colshow:sprint')).toBe('1')
+  await expect.poll(() => s2(sheet, 'colshow:priority#')).toBeUndefined() // nothing to move: it had no setting
+})
+
+const s2 = (s: FakeSheet, id: string) => s.rows('_board').find((r) => r[0] === id)?.[2]
+
+test('"Show on notes" is a board setting: the Sheet header is not touched, and a column with a # can be turned off', async ({ page }) => {
+  const s = sheetWithColumns()
+  await openBoard(page, s)
+  await expect(note(page, 'One').locator('.chip')).toHaveCount(2) // prio# and project# have a #
+  await openColumns(page)
+  await row(page, 'prio').getByLabel('Show on notes').uncheck()
+  await expect.poll(() => s2(s, 'colshow:prio#')).toBe('0')
+  await row(page, 'notes').getByLabel('Show on notes').check()
+  await expect.poll(() => s2(s, 'colshow:notes')).toBe('1')
+  expect(s.tabs.Tasks[0]).toEqual(['id', 'title', 'prio#', 'notes', 'project#', 'board', 'drawing', 'status']) // untouched
+  expect(s.batches.filter((b) => !b.some((r) => 'addSheet' in r))).toHaveLength(0) // no column change at all
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(note(page, 'One').locator('.chip')).toHaveCount(2) // project# and notes
+  await expect(note(page, 'One').locator('.chip').first()).not.toContainText('1') // prio is gone
+})
+
+test('column emoji also show in the View menu and the filter pills', async ({ page }) => {
+  const s = sheetWithColumns()
+  s.tabs._board = [['id', 'type', 'data'], ['colicon:project#', 'colicon', '🎯']]
+  await openBoard(page, s)
+  await page.getByRole('button', { name: 'View options' }).click()
+  await expect(page.getByRole('button', { name: /🎯.*project/ })).toBeVisible()
+  await page.getByRole('button', { name: /🎯.*project/ }).click() // color by project: the legend appears
+  await note(page, 'One').locator('.chip', { hasText: 'BSN' }).click() // quick filter on a pill
+  await expect(page.locator('.filter', { hasText: 'Only' })).toContainText('🎯')
 })
 
 test('refuses to apply when the Sheet\'s columns changed since the page opened', async ({ page }) => {

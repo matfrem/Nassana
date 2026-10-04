@@ -117,26 +117,26 @@ describe('buildRequests', () => {
     const plan = buildRequests(st, [project, prio, notes, sprint, due], [{ index: 5, hidden: true, origHidden: false }], ['description'], { 3: 12 })
     sheet.apply(plan.requests)
 
-    expect(sheet.cols.map((c) => c.header)).toEqual(['id', 'title', 'project#', 'priority#', 'board', 'drawing', 'status', 'description', 'sprint#', 'due#'])
+    expect(sheet.cols.map((c) => c.header)).toEqual(['id', 'title', 'project#', 'priority#', 'board', 'drawing', 'status', 'description', 'sprint', 'due'])
     expect(sheet.cols.filter((c) => c.hidden).map((c) => c.header)).toEqual(['board'])
     expect(Object.fromEntries(sheet.cols.filter((c) => c.validation).map((c) => [c.header, c.validation]))).toEqual({
       'project#': 'ONE_OF_LIST',
-      'sprint#': 'ONE_OF_LIST',
+      sprint: 'ONE_OF_LIST',
     })
-    expect(sheet.cols.filter((c) => c.numberFormat).map((c) => c.header)).toEqual(['due#'])
+    expect(sheet.cols.filter((c) => c.numberFormat).map((c) => c.header)).toEqual(['due'])
     expect(sheet.grid()).toBe(sheet.cols.length)
     // project's color rules were rebuilt (3 values), the other column's rule survived, sprint got 2
     const byHeader = (h: string) => sheet.rules.filter((r) => r.header === h).map((r) => r.value).sort()
     expect(byHeader('project#')).toEqual(['BSN', 'NEW', 'TZ'])
-    expect(byHeader('sprint#')).toEqual(['S1', 'S2'])
+    expect(byHeader('sprint')).toEqual(['S1', 'S2'])
     expect(byHeader('priority#')).toEqual(['High']) // another column's rule survived, and followed its column through the rename
 
     expect(plan.summary).toEqual([
       'Delete column “notes” (12 values)',
       'Change the order of the columns',
       'Add the “description” column',
-      'Add column “sprint” (Dropdown, shown on notes)',
-      'Add column “due” (Date, shown on notes)',
+      'Add column “sprint” (Dropdown)',
+      'Add column “due” (Date)',
       'Rename “prio” to “priority”',
       'Update the dropdown values of “project”',
       'Hide the “board” column in the Sheet',
@@ -174,5 +174,23 @@ describe('sameOpts', () => {
     expect(sameOpts([{ value: 'a', color: '#ABCDEF' }], [{ value: 'a', color: '#abcdef' }])).toBe(true)
     expect(sameOpts([{ value: 'a', color: '#000000' }], [{ value: 'b', color: '#000000' }])).toBe(false)
     expect(sameOpts([{ value: 'a', color: '#000000' }], [])).toBe(false)
+  })
+
+  it('never adds or removes a # in the Sheet: "shown on notes" is a board setting', () => {
+    const st = structure()
+    const toggled = [existing(2, 'prio', false, 'text'), existing(3, 'notes', true, 'text'), existing(4, 'project', true, 'text')]
+    toggled[0].orig!.shown = true // unticked
+    toggled[1].orig!.shown = false // ticked
+    const plan = buildRequests(st, toggled, [], [])
+    expect(plan.requests).toEqual([])
+    expect(plan.summary).toEqual([])
+    // a rename keeps whatever was there: prio# stays prio#, notes stays notes
+    const sheet = makeSheet(st)
+    const prio = existing(2, 'priority', true, 'text')
+    prio.orig!.name = 'prio'
+    const notes = existing(3, 'memo', true, 'text')
+    notes.orig!.name = 'notes'
+    sheet.apply(buildRequests(st, [prio, notes, existing(4, 'project', true, 'text')], [], []).requests)
+    expect(sheet.cols.map((c) => c.header)).toEqual(['id', 'title', 'priority#', 'memo', 'project#', 'board', 'drawing', 'status'])
   })
 })

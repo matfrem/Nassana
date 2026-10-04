@@ -138,7 +138,10 @@ export function BoardView({ source }: { source: Source }) {
   const [stampMenu, setStampMenu] = useState(false)
   /** Emoji given to columns (board only), by column key; `knownIcons` are the ones that already have a row in `_board`. */
   const [colIcons, setColIcons] = useState<Record<string, string>>({})
-  const knownIcons = useRef(new Set<string>())
+  /** Rows of `_board` that already exist for column settings (`colicon:<key>`, `colshow:<key>`). */
+  const knownPrefs = useRef(new Set<string>())
+  /** Whether a column is shown on notes, by column key: a board setting that wins over a `#` in the header. */
+  const [colShown, setColShown] = useState<Record<string, boolean>>({})
   const [showStamps, setShowStampsState] = useState(savedView.showStamps)
   const [showChips, setShowChipsState] = useState(savedView.showChips)
   const [showLinks, setShowLinksState] = useState(savedView.showLinks)
@@ -279,7 +282,8 @@ export function BoardView({ source }: { source: Source }) {
           setLinks(board.links)
           knownOpen.current = new Set(board.open)
           setColIcons(board.icons)
-          knownIcons.current = new Set(Object.keys(board.icons))
+          setColShown(board.shown)
+          knownPrefs.current = new Set([...Object.keys(board.icons).map((k) => `colicon:${k}`), ...Object.keys(board.shown).map((k) => `colshow:${k}`)])
           if (!background) setOpenStacks(new Set(board.open)) // a read-only viewer's own toggles survive the background refresh
           setColorRules(Object.fromEntries(board.colors.map((c) => [`${c.key}|${c.raw}`, c])))
           knownColors.current = new Set(board.colors.map(colorRowId))
@@ -1203,7 +1207,7 @@ export function BoardView({ source }: { source: Source }) {
   }, [])
 
   // ---- properties: fields, pills, filter, color-by ----
-  const fields = useMemo(() => buildFields(columns, tasks, meta), [columns, tasks, meta])
+  const fields = useMemo(() => buildFields(columns, tasks, meta).map((f) => (colShown[f.key] === undefined ? f : { ...f, shown: colShown[f.key] })), [columns, tasks, meta, colShown])
   const shownFields = useMemo(() => fields.filter((f) => f.shown), [fields])
 
   /** The links of a note, with the title of the note at the other end. */
@@ -1223,6 +1227,9 @@ export function BoardView({ source }: { source: Source }) {
     const ys = [...tasks.flatMap((t) => [t.board.y, t.board.y + NOTE_SIZE]), ...zones.flatMap((z) => [z.y, z.y + z.h])]
     if (xs.length) setCamera(fitRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), window.innerWidth, window.innerHeight))
   }
+
+  /** A column's emoji followed by a space (or nothing), for menus and pills. */
+  const icon = (key: string) => (colIcons[key] ? `${colIcons[key]} ` : '')
 
   /** `name (visible/total)` once some values of the column are hidden, so an active filter is visible in the menu. */
   const withCounts = (key: string, label: string) => {
@@ -1491,6 +1498,33 @@ export function BoardView({ source }: { source: Source }) {
   const stampTargets = (): string[] =>
     multiRef.current.length ? multiRef.current.filter((i) => i.kind === 'note').map((i) => i.id) : selectedId ? [selectedId] : []
 
+  /** Writes (or removes, with null) one column setting row of `_board`. Runs inside a queued job. */
+  const persistPref = async (type: 'colicon' | 'colshow', key: string, value: string | null) => {
+    if (!sheetId) return
+    const row = `${type}:${key}`
+    if (value !== null && knownPrefs.current.has(row)) await updateBoardRows(sheetId, [{ id: row, data: value }])
+    else if (value !== null) {
+      await appendBoardRow(sheetId, row, type, value)
+      knownPrefs.current.add(row)
+    } else if (knownPrefs.current.has(row)) {
+      await deleteBoardRows(sheetId, [row])
+      knownPrefs.current.delete(row)
+    }
+  }
+
+  const savePrefs = (jobs: (() => Promise<void>)[]) => {
+    if (!sheetId || jobs.length === 0) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        for (const j of jobs) await j()
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        fail(e)
+      }
+    })
+  }
+
   /** Gives a column an emoji ('' removes it): shown before the value in its pills, saved in the board only. */
   const setColumnIcon = (key: string, emoji: string) => {
     setColIcons((c) => {
@@ -1499,24 +1533,40 @@ export function BoardView({ source }: { source: Source }) {
       else delete next[key]
       return next
     })
-    if (!sheetId) return
-    setSave({ kind: 'saving' })
-    void enqueue(async () => {
-      try {
-        const row = `colicon:${key}`
-        if (emoji && knownIcons.current.has(key)) await updateBoardRows(sheetId, [{ id: row, data: emoji }])
-        else if (emoji) {
-          await appendBoardRow(sheetId, row, 'colicon', emoji)
-          knownIcons.current.add(key)
-        } else if (knownIcons.current.has(key)) {
-          await deleteBoardRows(sheetId, [row])
-          knownIcons.current.delete(key)
-        }
-        setSave({ kind: 'saved' })
-      } catch (e) {
-        fail(e)
+    savePrefs([() => persistPref('colicon', key, emoji || null)])
+  }
+
+  /** Shows or hides a column's pills on notes: a board setting, the Sheet's header is never touched. */
+  const setColumnShown = (key: string, shown: boolean) => {
+    setColShown((c) => ({ ...c, [key]: shown }))
+    savePrefs([() => persistPref('colshow', key, shown ? '1' : '0')])
+  }
+
+  /** After the Columns page was applied: new columns shown on notes, and the settings of renamed columns follow them. */
+  const onColumnKeys = (shown: [string, boolean][], renames: [string, string][]) => {
+    const jobs: (() => Promise<void>)[] = []
+    const icons = { ...colIcons }
+    const shownNow = { ...colShown }
+    for (const [from, to] of renames) {
+      if (from === to) continue
+      if (icons[from]) {
+        icons[to] = icons[from]
+        delete icons[from]
+        jobs.push(() => persistPref('colicon', to, icons[to]), () => persistPref('colicon', from, null))
       }
-    })
+      if (shownNow[from] !== undefined) {
+        shownNow[to] = shownNow[from]
+        delete shownNow[from]
+        jobs.push(() => persistPref('colshow', to, shownNow[to] ? '1' : '0'), () => persistPref('colshow', from, null))
+      }
+    }
+    for (const [key, on] of shown) {
+      shownNow[key] = on
+      jobs.push(() => persistPref('colshow', key, on ? '1' : '0'))
+    }
+    setColIcons(icons)
+    setColShown(shownNow)
+    savePrefs(jobs)
   }
 
   /** Adds the stamp to the notes, or removes it from all of them when they all have it already. */
@@ -1892,6 +1942,7 @@ export function BoardView({ source }: { source: Source }) {
                     )}
                     {fields.map((f) => (
                       <button key={f.key} className={colorBy === f.key ? 'on' : ''} onClick={() => setColorBy(f.key)}>
+                        {icon(f.key)}
                         {withCounts(f.key, f.label)}
                       </button>
                     ))}
@@ -2176,7 +2227,7 @@ export function BoardView({ source }: { source: Source }) {
             ))}
           {filter && (
             <button className="filter" onClick={() => setFilter(null)}>
-              Only {filter.label}: {filter.text} ✕
+              Only {icon(filter.key)}{filter.label}: {filter.text} ✕
             </button>
           )}
           {/* Hidden values of other columns are not in the legend: one pill per column keeps the bar short. */}
@@ -2184,7 +2235,7 @@ export function BoardView({ source }: { source: Source }) {
             .filter((g) => g.key !== colorScheme?.field.key)
             .map((g) => (
               <button className="filter" key={g.key} onClick={() => saveHidden(hidden.filter((h) => h.key !== g.key))}>
-                {g.label}: {g.count} hidden ✕
+                {icon(g.key)}{g.label}: {g.count} hidden ✕
               </button>
             ))}
           {hidden.length > 1 && (
@@ -2202,10 +2253,12 @@ export function BoardView({ source }: { source: Source }) {
           tasks={tasks}
           icons={colIcons}
           onIcon={setColumnIcon}
+          onShown={setColumnShown}
+          onKeys={onColumnKeys}
           onClose={() => setShowColumns(false)}
           onApplied={() => {
             setShowColumns(false)
-            void load(false) // columns changed in the Sheet: read everything again
+            void saving.current.then(() => load(false)) // columns changed in the Sheet (and their board settings saved): read everything again
           }}
         />
       )}

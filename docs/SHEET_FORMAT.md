@@ -15,7 +15,7 @@ One row = one task = one note. Rows are always found by `id`, never by position,
 | `status` | no | the app / you | Free text. Equals the name of the zone the note sits in. See [Zones](USER_GUIDE.md#zones-a-scrum-board). |
 | `board` | no | the app | `{"x":-270,"y":-107,"color":"#FFE066"}`: position of the note's top-left corner in board units and its color. The note is 180 × 180. Missing or invalid: the note is laid out automatically (5 per row, step 220) below the placed ones, and saved on the next edit. |
 | `drawing` | no | the app | Strokes drawn on this note, see below. |
-| *anything else* | no | you | **Custom properties.** A header ending in `#` (`dueDate#`) is shown as a pill on the note; the others only in the details panel. |
+| *anything else* | no | you | **Custom properties.** Whether a column is shown as a pill on the note is a board setting (`colshow` row of `_board`); a header ending in `#` (`dueDate#`, from older versions) counts as shown until that setting says otherwise. The app never writes or removes a `#` in your headers, and only ever adds `board`, `parent`, `drawing`, `stamps` (and `status`, `description` on request) to the Tasks header. |
 
 Created on first use: `board`, `drawing`, `status`, `description` (the app appends the header cell). Hide them in the Sheet if you
 like (columns page, or Sheets' own *Hide column*): the app doesn't care.
@@ -54,6 +54,7 @@ Everything that is not a task: one row per item, header `id | type | data`, `dat
 | `link` | 8 hex | `{"from":"<task id>","to":"<task id>","arrow":"one"}`; `arrow` is `one` (head at `to`), `both` or `none`. Older rows with a boolean are still read (`true` = `one`, `false` = `none`). |
 | `open` | `open:<parent id>` | `1`. The stack of that note is spread open; no row = tucked away (shared by everyone). |
 | `colicon` | `colicon:<column key>` | The emoji given to a column (shown before the value in its pills). The key is the header lowercased, e.g. `prio#`. |
+| `colshow` | `colshow:<column key>` | `1` or `0`: the column's pills are shown on notes or not (overrides a `#` in the header). |
 | `color` | `color:<column key>\|<value>` | `{"key":"priority#","value":"a","color":"#FF8800"}`: the color picked in the legend for one value of a column; `key` is the lowercased header (or `status`), `value` is lowercased and trimmed. |
 
 Adding or removing an item appends or deletes a row; editing one rewrites its `data` cell. Links whose notes no longer exist are

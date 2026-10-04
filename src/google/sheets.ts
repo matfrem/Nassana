@@ -439,6 +439,8 @@ export interface BoardData {
   open: string[]
   /** Emoji given to columns, by column key. */
   icons: Record<string, string>
+  /** Whether a column is shown on notes, by column key (overrides a `#` in the header). */
+  shown: Record<string, boolean>
 }
 
 /** Reads strokes and zones. A Sheet without the `_board` tab simply has neither. */
@@ -447,7 +449,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     const res = (await api(
       `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(DRAWING_TAB)}?valueRenderOption=UNFORMATTED_VALUE`,
     )) as { values?: unknown[][] }
-    const out: BoardData = { strokes: [], zones: [], links: [], colors: [], open: [], icons: {} }
+    const out: BoardData = { strokes: [], zones: [], links: [], colors: [], open: [], icons: {}, shown: {} }
     for (const r of (res.values ?? []).slice(1)) {
       const id = String(r[0] ?? '')
       const type = String(r[1] ?? '')
@@ -466,6 +468,9 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
       } else if (type === 'colicon') {
         const key = id.replace(/^colicon:/, '')
         if (key && typeof r[2] === 'string' && r[2].trim()) out.icons[key] = r[2].trim()
+      } else if (type === 'colshow') {
+        const key = id.replace(/^colshow:/, '')
+        if (key && (r[2] === '1' || r[2] === '0' || r[2] === 1 || r[2] === 0)) out.shown[key] = String(r[2]) === '1'
       } else if (type === 'open') {
         const parent = id.replace(/^open:/, '')
         if (parent) out.open.push(parent)
@@ -473,7 +478,7 @@ export async function fetchBoardData(sheetId: string): Promise<BoardData> {
     }
     return out
   } catch (e) {
-    if (isMissingTab(e)) return { strokes: [], zones: [], links: [], colors: [], open: [], icons: {} }
+    if (isMissingTab(e)) return { strokes: [], zones: [], links: [], colors: [], open: [], icons: {}, shown: {} }
     throw e
   }
 }
@@ -496,7 +501,7 @@ async function createBoardTab(sheetId: string): Promise<void> {
 }
 
 /** Appends a row, creating the `_board` tab first if this is the Sheet's first one. */
-export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link' | 'color' | 'open' | 'colicon', data: string): Promise<void> {
+export async function appendBoardRow(sheetId: string, rowId: string, type: 'stroke' | 'zone' | 'link' | 'color' | 'open' | 'colicon' | 'colshow', data: string): Promise<void> {
   const url = `${API}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${DRAWING_TAB}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
   const body = { values: [[rowId, type, data]] }
   try {

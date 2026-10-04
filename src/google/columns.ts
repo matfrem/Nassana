@@ -130,7 +130,11 @@ export const signature = (s: Structure) => JSON.stringify([s.gid, s.columns, s.r
 
 export const sameOpts = (a: Opt[], b: Opt[]) => a.length === b.length && a.every((o, i) => o.value === b[i].value && o.color.toLowerCase() === b[i].color.toLowerCase())
 
-export const fullHeader = (d: Pick<Draft, 'name' | 'shown'>) => d.name.trim() + (d.shown ? '#' : '')
+/**
+ * The header text of a column. Whether a column is shown on notes is a board setting: the Sheet never gets a `#` from the app.
+ * A column that already had one keeps it (we don't touch what is there); a new column never gets one.
+ */
+export const fullHeader = (d: Pick<Draft, 'name'>, was = '') => d.name.trim() + (was.endsWith('#') ? '#' : '')
 
 export const TYPE_LABEL: Record<ColType, string> = { text: 'Text', number: 'Number', date: 'Date', checkbox: 'Checkbox', select: 'Dropdown' }
 
@@ -214,7 +218,7 @@ export function buildRequests(
         : { insertDimension: { range: dim(start, start + adds.length), inheritFromBefore: false } },
     )
     work = [...work, ...adds.map((a) => ({ key: a.key }))]
-    for (const a of adds) summary.push(a.draft ? `Add column “${a.draft.name.trim()}” (${TYPE_LABEL[a.draft.type]}${a.draft.shown ? ', shown on notes' : ''})` : `Add the “${a.header}” column`)
+    for (const a of adds) summary.push(a.draft ? `Add column “${a.draft.name.trim()}” (${TYPE_LABEL[a.draft.type]})` : `Add the “${a.header}” column`)
   }
   const at = (key: string) => work.findIndex((w) => w.key === key)
 
@@ -230,13 +234,12 @@ export function buildRequests(
   for (const a of adds) writeHeader(a.key, a.header)
   for (const d of kept) {
     const was = st.columns.find((c) => c.index === d.index)!.header
-    const now = fullHeader(d)
+    const now = fullHeader(d, was)
     if (was !== now) {
       writeHeader('c' + d.index, now)
       const a = was.replace(/#$/, '')
       const b = now.replace(/#$/, '')
       if (a !== b) summary.push(`Rename “${a}” to “${b}”`)
-      if (was.endsWith('#') !== now.endsWith('#')) summary.push(`${d.shown ? 'Show' : 'Hide'} “${b}” on notes`)
     }
   }
 

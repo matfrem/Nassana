@@ -6,6 +6,7 @@ import {
   applyColumns,
   buildRequests,
   fetchStructure,
+  fullHeader,
   TYPE_LABEL,
   type ColType,
   type Draft,
@@ -25,6 +26,10 @@ interface Props {
   /** Emoji of the columns (stored in the board only), by column key; `onIcon` sets one ('' removes it). */
   icons: Record<string, string>
   onIcon: (key: string, emoji: string) => void
+  /** Sets whether an existing column is shown on notes (board setting, applied at once). */
+  onShown: (key: string, shown: boolean) => void
+  /** After Apply: the new columns' shown flags, and the keys of renamed columns (their board settings follow). */
+  onKeys: (shown: [string, boolean][], renames: [string, string][]) => void
   onClose: () => void
   /** The Sheet was changed: the board must reload. */
   onApplied: () => void
@@ -48,7 +53,7 @@ function draftsFrom(st: Structure, fields: Field[], tasks: Task[]): Draft[] {
   })
 }
 
-export function ColumnsPage({ sheetId, fields, tasks, icons, onIcon, onClose, onApplied }: Props) {
+export function ColumnsPage({ sheetId, fields, tasks, icons, onIcon, onShown, onKeys, onClose, onApplied }: Props) {
   const [opened, setOpened] = useState<Structure | null>(null)
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [system, setSystem] = useState<SystemEdit[]>([])
@@ -148,6 +153,13 @@ export function ColumnsPage({ sheetId, fields, tasks, icons, onIcon, onClose, on
     setError('')
     try {
       await applyColumns(sheetId, opened, drafts, system, adds)
+      const headerOf = (index: number) => opened.columns.find((c) => c.index === index)?.header ?? ''
+      onKeys(
+        drafts.filter((d) => d.index === undefined && !d.deleted && d.name.trim() && d.shown).map((d) => [fullHeader(d).toLowerCase(), true] as [string, boolean]),
+        drafts
+          .filter((d) => d.index !== undefined && !d.deleted && d.name.trim() !== d.orig?.name)
+          .map((d) => [headerOf(d.index!).toLowerCase(), fullHeader(d, headerOf(d.index!)).toLowerCase()] as [string, string]),
+      )
       onApplied()
     } catch (e) {
       setConfirming(false)
@@ -192,6 +204,7 @@ export function ColumnsPage({ sheetId, fields, tasks, icons, onIcon, onClose, on
                 iconKey={d.index !== undefined ? fields.find((f) => f.index === d.index)?.key : undefined}
                 icons={icons}
                 onIcon={onIcon}
+                onShown={onShown}
                 onChange={(p) => patch(d.uid, p)}
                 onType={(t) => setType(d, t)}
                 onMove={(dir) => move(d.uid, dir)}
@@ -280,6 +293,7 @@ function Row({
   iconKey,
   icons,
   onIcon,
+  onShown,
   onChange,
   onType,
   onMove,
@@ -294,6 +308,7 @@ function Row({
   iconKey?: string
   icons: Record<string, string>
   onIcon: (key: string, emoji: string) => void
+  onShown: (key: string, shown: boolean) => void
   onChange: (p: Partial<Draft>) => void
   onType: (t: ColType) => void
   onMove: (dir: -1 | 1) => void
@@ -350,7 +365,14 @@ function Row({
       </div>
       <div className="cfg-flags">
         <label className="flag">
-          <input type="checkbox" checked={d.shown} onChange={(e) => onChange({ shown: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={d.shown}
+            onChange={(e) => {
+              onChange({ shown: e.target.checked })
+              if (iconKey) onShown(iconKey, e.target.checked) // a board setting: saved at once, the Sheet is not touched
+            }}
+          />
           Show on notes
         </label>
         {iconKey && (

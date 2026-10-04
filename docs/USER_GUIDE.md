@@ -45,9 +45,9 @@ at the bottom. Changing the status moves the note into the zone of that name.
 Pills of dropdown columns are colored like the legend: the color picked in the app, else the Sheet's own color, else a tone (priorities), else a palette color.
 
 
-Any column whose header ends with `#` (`dueDate#`, `prio#`…) is shown as a pill on the note. Types are read from the Sheet
+Custom columns can be shown as a pill on the note (**Columns → Show on notes**, a setting kept in the board, never in the Sheet). Columns whose header already ends with `#` (`dueDate#`, `prio#`… from older versions) start as shown; the app never adds or removes a `#` itself. Types are read from the Sheet
 (dropdown, checkbox, date format) or guessed from the values: **dates** turn orange within 2 days and red when overdue,
-**priorities** (`high`/`medium`/`low`, `P1`…) are red/orange/green, links show their site name. Columns without `#` appear only
+**priorities** (`high`/`medium`/`low`, `P1`…) are red/orange/green, links show their site name. Columns that are not shown appear only
 in the details panel. `title` and `description` are fixed.
 
 ## Stamps
@@ -156,7 +156,7 @@ Each existing column has an **Emoji** dropdown: the emoji is shown before the va
 
 Edits the real columns of the `Tasks` tab, like you would in Sheets:
 
-- Rename, reorder (↑ ↓), **Show on notes** (the `#` suffix), **Hidden in the Sheet**, delete.
+- Rename, reorder (↑ ↓), **Show on notes** (a board setting, applied at once), **Hidden in the Sheet**, delete.
 - Type: Text, Number, Date, Checkbox, Dropdown. A dropdown has an editable list of values, each with a color (written as one
   conditional-format rule per value, so the Sheet itself shows the colors).
 - **Managed by the app** (`id`, `title`, `description`, `status`, `board`, `drawing`): cannot be renamed or deleted, only hidden in the
