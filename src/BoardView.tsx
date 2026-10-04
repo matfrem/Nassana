@@ -134,6 +134,10 @@ export function BoardView({ source }: { source: Source }) {
   /** Values hidden from the board, kept across changes of the "color by" column and across reloads. */
   const [hidden, setHidden] = useState<HideRule[]>(savedView.hidden)
   const [viewMenu, setViewMenu] = useState(false)
+  const [filterMenu, setFilterMenu] = useState(false)
+  const [bgOpen, setBgOpen] = useState(false)
+  const [background, setBackgroundState] = useState(savedView.background)
+  const [bgColor, setBgColorState] = useState(savedView.bgColor)
   const [moreMenu, setMoreMenu] = useState(false)
   const [stampMenu, setStampMenu] = useState(false)
   /** The details panel is open for the multi-selection. */
@@ -147,6 +151,15 @@ export function BoardView({ source }: { source: Source }) {
   const [showStamps, setShowStampsState] = useState(savedView.showStamps)
   const [showChips, setShowChipsState] = useState(savedView.showChips)
   const [showLinks, setShowLinksState] = useState(savedView.showLinks)
+  const setBackground = (kind: 'dots' | 'color' | 'empty') => {
+    setBackgroundState(kind)
+    saveView(sheetId, { background: kind })
+  }
+  const setBgColor = (color: string) => {
+    setBgColorState(color)
+    setBackgroundState('color')
+    saveView(sheetId, { bgColor: color, background: 'color' })
+  }
   const setShowStamps = (on: boolean) => {
     setShowStampsState(on)
     saveView(sheetId, { showStamps: on })
@@ -1238,6 +1251,7 @@ export function BoardView({ source }: { source: Source }) {
   /** Camera that shows every note and zone. */
   const fitContent = () => {
     setViewMenu(false)
+    setFilterMenu(false)
     const xs = [...tasks.flatMap((t) => [t.board.x, t.board.x + NOTE_SIZE]), ...zones.flatMap((z) => [z.x, z.x + z.w])]
     const ys = [...tasks.flatMap((t) => [t.board.y, t.board.y + NOTE_SIZE]), ...zones.flatMap((z) => [z.y, z.y + z.h])]
     if (xs.length) setCamera(fitRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), window.innerWidth, window.innerHeight))
@@ -1275,7 +1289,7 @@ export function BoardView({ source }: { source: Source }) {
 
   const setColorBy = (key: string) => {
     setColorByState(key)
-    setViewMenu(false)
+    setFilterMenu(false)
     saveView(sheetId, { colorBy: key })
   }
 
@@ -1740,15 +1754,16 @@ export function BoardView({ source }: { source: Source }) {
 
   // A tap anywhere outside an open menu closes it.
   useEffect(() => {
-    if (!viewMenu && !moreMenu) return
+    if (!viewMenu && !moreMenu && !filterMenu) return
     const close = (e: PointerEvent) => {
       if ((e.target as Element | null)?.closest?.('.menu-anchor')) return
       setViewMenu(false)
       setMoreMenu(false)
+      setFilterMenu(false)
     }
     window.addEventListener('pointerdown', close, true)
     return () => window.removeEventListener('pointerdown', close, true)
-  }, [viewMenu, moreMenu])
+  }, [viewMenu, moreMenu, filterMenu])
 
   const zoomTo = (f: number | 'reset') =>
     setCamera((c) =>
@@ -1762,6 +1777,7 @@ export function BoardView({ source }: { source: Source }) {
         showLinks={showLinks || tool === 'link'}
         showStamps={showStamps}
         showChips={showChips}
+        background={{ kind: background, color: bgColor }}
         editable={editable}
         onMove={onMove}
         onMoveEnd={onMoveEnd}
@@ -1941,27 +1957,62 @@ export function BoardView({ source }: { source: Source }) {
             )}
           </span>
         )}
+        <span className="menu-anchor">
+          <button aria-label="View options" title="View" onClick={() => setViewMenu((v) => !v)}>
+            👁
+          </button>
+          {viewMenu && (
+            <div className="menu">
+              <strong>View</strong>
+              <button onClick={fitContent}>⤢ Fit to content</button>
+              <label className="menu-check">
+                <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
+                Show links
+              </label>
+              <label className="menu-check">
+                <input type="checkbox" checked={showStamps} onChange={(e) => setShowStamps(e.target.checked)} />
+                Show stamps
+              </label>
+              <label className="menu-check">
+                <input type="checkbox" checked={showChips} onChange={(e) => setShowChips(e.target.checked)} />
+                Show property chips
+              </label>
+              <button aria-expanded={bgOpen} onClick={() => setBgOpen((o) => !o)}>
+                {bgOpen ? '▾' : '▸'} Show background
+              </button>
+              {bgOpen && (
+                <div className="submenu">
+                  <button className={background === 'dots' ? 'on' : ''} onClick={() => setBackground('dots')}>
+                    Dots
+                  </button>
+                  <button
+                    className={background === 'color' ? 'on' : ''}
+                    onClick={() => {
+                      const prevKind = background
+                      const prevColor = bgColor
+                      setBackground('color')
+                      setViewMenu(false)
+                      // Cancel puts the previous color (and the previous kind of background) back.
+                      setPicker({ title: 'Background color', value: bgColor, onChange: (c) => (c === prevColor && prevKind !== 'color' ? setBackground(prevKind) : setBgColor(c)) })
+                    }}
+                  >
+                    Color…
+                  </button>
+                  <button className={background === 'empty' ? 'on' : ''} onClick={() => setBackground('empty')}>
+                    Empty
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </span>
         {(fields.length > 0 || hasStatus || !!sheetId) && (
           <span className="menu-anchor">
-            <button aria-label="View options" className={colorBy ? 'primary' : ''} onClick={() => setViewMenu((v) => !v)}>
+            <button aria-label="Filter options" title="Filter" className={colorBy ? 'primary' : ''} onClick={() => setFilterMenu((v) => !v)}>
               ◐
             </button>
-            {viewMenu && (
+            {filterMenu && (
               <div className="menu">
-                <strong>View</strong>
-                <button onClick={fitContent}>⤢ Fit to content</button>
-                <label className="menu-check">
-                  <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
-                  Show links
-                </label>
-                <label className="menu-check">
-                  <input type="checkbox" checked={showStamps} onChange={(e) => setShowStamps(e.target.checked)} />
-                  Show stamps
-                </label>
-                <label className="menu-check">
-                  <input type="checkbox" checked={showChips} onChange={(e) => setShowChips(e.target.checked)} />
-                  Show property chips
-                </label>
                 {(fields.length > 0 || hasStatus) && (
                   <>
                     <strong>Color notes by</strong>
@@ -1986,7 +2037,7 @@ export function BoardView({ source }: { source: Source }) {
                     <strong>Sheet</strong>
                     <button
                       onClick={() => {
-                        setViewMenu(false)
+                        setFilterMenu(false)
                         setShowColumns(true)
                       }}
                     >

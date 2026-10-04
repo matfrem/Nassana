@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { FakeSheet } from './fakeSheet'
 import { board, drag, note, noteCenter, openBoard, startEditing, zoneRow } from './helpers'
 
-const viewMenu = (page: Page) => page.getByRole('button', { name: 'View options' }).click()
+const viewMenu = (page: Page) => page.getByRole('button', { name: 'Filter options' }).click()
 const menuItem = (page: Page, name: string | RegExp) => page.locator('.menu button', { hasText: name })
 async function colorBy(page: Page, name: string | RegExp) {
   await viewMenu(page)
@@ -157,7 +157,7 @@ test('remembers where this browser was looking', async ({ page }) => {
   expect(await transform()).toBe(moved)
 
   // "Fit to content" brings everything back
-  await viewMenu(page)
+  await page.getByRole('button', { name: 'View options' }).click()
   await page.getByRole('button', { name: '⤢ Fit to content' }).click()
   expect(await transform()).not.toBe(moved)
 })
@@ -233,4 +233,45 @@ test('"Show links" in the view menu hides the dotted links and is remembered', a
   await page.reload()
   await page.locator('.note').first().waitFor()
   await expect(page.locator('.link-line')).toHaveCount(0)
+})
+
+test('the View menu (links, stamps, chips, background) is separate from the Filter menu (color by, columns)', async ({ page }) => {
+  const sheet = new FakeSheet({ Tasks: [['id', 'title', 'board', 'prio#'], ['a', 'Alpha', board(0, 0), 'High']] })
+  await openBoard(page, sheet)
+  await page.getByRole('button', { name: 'View options' }).click()
+  await expect(page.locator('.menu')).toContainText('Show links')
+  await expect(page.locator('.menu')).not.toContainText('Color notes by')
+  await page.keyboard.press('Escape') // (no effect on a menu; click elsewhere closes it)
+  await page.mouse.click(600, 600)
+  await page.getByRole('button', { name: 'Filter options' }).click()
+  await expect(page.locator('.menu')).toContainText('Color notes by')
+  await expect(page.locator('.menu')).not.toContainText('Show links')
+})
+
+test('Show background: dots, a color chosen in the picker, or empty; remembered', async ({ page }) => {
+  const sheet = new FakeSheet({ Tasks: [['id', 'title', 'board'], ['a', 'Alpha', board(0, 0)]] })
+  await openBoard(page, sheet)
+  const vp = page.locator('.viewport')
+  await expect(vp).toHaveCSS('background-image', /radial-gradient/) // dots by default
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: /Show background/ }).click()
+  await page.locator('.submenu').getByRole('button', { name: 'Empty' }).click()
+  await expect(vp).toHaveCSS('background-image', 'none')
+  await page.locator('.submenu').getByRole('button', { name: 'Color…' }).click()
+  await page.getByLabel('Hex color').fill('#112233')
+  await expect(vp).toHaveCSS('background-color', 'rgb(17, 34, 51)')
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
+  await page.reload()
+  await page.locator('.note').first().waitFor()
+  await expect(vp).toHaveCSS('background-color', 'rgb(17, 34, 51)')
+  await expect(vp).toHaveCSS('background-image', 'none')
+  // Cancel in the picker puts the previous background back
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: /Show background/ }).click()
+  await page.locator('.submenu').getByRole('button', { name: 'Dots' }).click()
+  await expect(vp).toHaveCSS('background-image', /radial-gradient/)
+  await page.locator('.submenu').getByRole('button', { name: 'Color…' }).click()
+  await page.getByLabel('Hex color').fill('#445566')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(vp).toHaveCSS('background-image', /radial-gradient/)
 })

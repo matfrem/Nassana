@@ -21,7 +21,7 @@ function sheetWithColumns() {
 
 async function openColumns(page: import('@playwright/test').Page) {
   await startEditing(page)
-  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: 'Filter options' }).click()
   await page.getByRole('button', { name: '⚙ Edit columns…' }).click()
   await page.locator('.cfg-row').first().waitFor()
 }
@@ -132,7 +132,7 @@ test('column emoji also show in the View menu and the filter pills', async ({ pa
   const s = sheetWithColumns()
   s.tabs._board = [['id', 'type', 'data'], ['colicon:project#', 'colicon', '🎯']]
   await openBoard(page, s)
-  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: 'Filter options' }).click()
   await expect(page.getByRole('button', { name: /🎯.*project/ })).toBeVisible()
   await page.getByRole('button', { name: /🎯.*project/ }).click() // color by project: the legend appears
   await note(page, 'One').locator('.chip', { hasText: 'BSN' }).click() // quick filter on a pill
@@ -164,7 +164,7 @@ test('a column can be given an emoji (saved in the board only), shown before the
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expect(note(page, 'One').locator('.chip').filter({ hasText: 'BSN' })).toHaveText(/🎯.*BSN/)
 
-  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: 'Filter options' }).click()
   await page.getByRole('button', { name: '⚙ Edit columns…' }).click()
   await page.locator('.cfg-row').first().waitFor()
   await row(page, 'project').getByLabel('Emoji').selectOption('')

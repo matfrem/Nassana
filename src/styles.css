@@ -800,3 +800,4 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .cfg .open-sheet { display: inline-block; margin: 16px 0 24px; padding: 8px 14px; border: 1px solid var(--ui-border); border-radius: 8px; color: var(--accent); text-decoration: none; font-weight: 600; }
 .cfg .icon-pick { min-width: 56px; }
 .panel i.differs { font-style: normal; font-weight: 700; color: var(--accent); cursor: help; }
+.menu .submenu { display: flex; flex-direction: column; gap: 4px; padding-left: 14px; }

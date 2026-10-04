@@ -34,6 +34,8 @@ interface Props {
   /** Draw the stamps and the property pills of notes. */
   showStamps: boolean
   showChips: boolean
+  /** The background of the board. */
+  background: { kind: 'dots' | 'color' | 'empty'; color: string }
   editable: boolean
   onMove: (id: string, x: number, y: number) => void
   onMoveEnd: (id: string) => void
@@ -108,6 +110,7 @@ export function Board({
   showLinks,
   showStamps,
   showChips,
+  background,
   editable,
   onMove,
   onMoveEnd,
@@ -573,7 +576,8 @@ export function Board({
       style={{
         cursor: tool !== 'none' ? 'crosshair' : panning ? 'grabbing' : 'grab',
         backgroundSize: `${gridSize}px ${gridSize}px`,
-        backgroundImage: gridSize < 12 ? 'none' : undefined, // dots closer than that only shimmer
+        backgroundImage: background.kind !== 'dots' || gridSize < 12 ? 'none' : undefined, // dots closer than that only shimmer
+        backgroundColor: background.kind === 'color' ? background.color : undefined,
         backgroundPosition: `${camera.x}px ${camera.y}px`,
       }}
       onPointerDownCapture={onPointerDownCapture}

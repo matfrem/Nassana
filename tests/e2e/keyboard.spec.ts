@@ -99,7 +99,7 @@ test('with notes colored by a column, the manual color buttons are disabled', as
   })
   await openBoard(page, s)
   await startEditing(page)
-  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('button', { name: 'Filter options' }).click()
   await page.getByRole('button', { name: /^Status/ }).click()
   const c = await noteCenter(page, 'Alpha')
   await page.mouse.click(c.x - 40, c.y - 40)

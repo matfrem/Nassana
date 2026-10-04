@@ -139,7 +139,7 @@ The 🎨 button (next to the quick swatches of a note, a zone or the pen), the l
 
 ## Colors, filters and hiding
 
-The **◐** button:
+The **◐ Filter** button (color and columns) — and, separately, the **👁 View** button (Fit to content, Show links / stamps / property chips, and **Show background**: Dots, a plain **Color…** picked in the color picker, or Empty; remembered per browser). The ◐ Filter button:
 
 - **View → Fit to content** recenters the board; **View → Show links**, **Show stamps** and **Show property chips** hide or show the dotted links, the stamps and the pills on notes (remembered per browser; the lines to sub-tasks stay). **Color notes by** a column (menu entries show `label (visible/total)` when a filter is active) or by **Status** (zone colors). A legend appears under the toolbar.
 - Where the colors come from, in order: a color you picked in the legend (Edit mode: the dots are color pickers; shared, stored in the

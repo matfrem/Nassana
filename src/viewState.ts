@@ -24,7 +24,12 @@ export interface ViewState {
   showStamps: boolean
   /** Draw the property pills on notes (when zoomed in enough). */
   showChips: boolean
+  /** The board's background: the dots, a plain color, or nothing (the theme's color). */
+  background: 'dots' | 'color' | 'empty'
+  bgColor: string
 }
+
+export const DEFAULT_BG = '#e8eef7'
 
 const KEY = (sheetId: string) => `nassana.view.${sheetId}`
 
@@ -34,7 +39,7 @@ const isRule = (r: unknown): r is HideRule =>
 const isCamera = (c: unknown): c is Camera =>
   !!c && typeof c === 'object' && ['x', 'y', 'zoom'].every((k) => Number.isFinite((c as Record<string, unknown>)[k]))
 
-const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true, showStamps: true, showChips: true })
+const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true, showStamps: true, showChips: true, background: 'dots', bgColor: DEFAULT_BG })
 
 function readJson(key: string): unknown {
   try {
@@ -57,6 +62,8 @@ export function loadView(sheetId: string | null): ViewState {
       showLinks: v.showLinks !== false,
       showStamps: v.showStamps !== false,
       showChips: v.showChips !== false,
+      background: v.background === 'color' || v.background === 'empty' ? v.background : 'dots',
+      bgColor: typeof v.bgColor === 'string' && /^#[0-9a-f]{6}$/i.test(v.bgColor) ? v.bgColor : DEFAULT_BG,
     }
   }
   // Older versions kept these two in separate entries.
