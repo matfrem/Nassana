@@ -126,7 +126,7 @@ test('a zone drawn from scratch has no status: its title is edited and notes dro
 })
 
 test('a dragged zone snaps onto the grid', async ({ page }) => {
-  const sheet = zonesSheet([])
+  const sheet = zonesSheet([['p', 'Plain', '', board(-900, 300)]])
   await openBoard(page, sheet)
   await startEditing(page)
   const header = (await page.locator('.zone-header', { hasText: 'Backlog' }).boundingBox())!
