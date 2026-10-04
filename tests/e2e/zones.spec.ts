@@ -99,7 +99,8 @@ test('creates one zone per status and moves the notes into them', async ({ page 
   })
   await openBoard(page, sheet)
   await startEditing(page)
-  await page.getByRole('button', { name: 'Zone' }).click()
+  await page.getByRole('button', { name: 'More tools' }).click()
+  await page.getByRole('button', { name: /Zone/ }).click()
   await page.getByRole('button', { name: 'One zone per status (3)' }).click()
 
   await expect(page.locator('.zone-header')).toHaveText(['To Do2', 'Done2', 'En Cours1'])
@@ -115,10 +116,25 @@ test('a zone drawn from scratch has no status: its title is edited and notes dro
   const sheet = zonesSheet([['p', 'Plain', 'Todo', board(-900, 300)]])
   await openBoard(page, sheet)
   await startEditing(page)
-  await page.getByRole('button', { name: 'Zone' }).first().click()
+  await page.getByRole('button', { name: 'More tools' }).click()
+  await page.getByRole('button', { name: /Zone/ }).click()
   await drag(page, { x: 700, y: 300 }, { x: 1000, y: 600 })
   await page.keyboard.type('Group A')
   await page.keyboard.press('Enter')
   await expect(page.locator('.zone-header', { hasText: 'Group A' })).toBeVisible()
   await expect.poll(() => sheet.board('zone').map((z) => JSON.parse(z)).find((z) => z.title === 'Group A')).toMatchObject({ name: '', title: 'Group A' })
+})
+
+test('a dragged zone snaps onto the grid', async ({ page }) => {
+  const sheet = zonesSheet([])
+  await openBoard(page, sheet)
+  await startEditing(page)
+  const header = (await page.locator('.zone-header', { hasText: 'Backlog' }).boundingBox())!
+  await drag(page, { x: header.x + 60, y: header.y + 15 }, { x: header.x + 60 + 53, y: header.y + 15 + 37 })
+  await expect
+    .poll(() => {
+      const z = JSON.parse(sheet.board('zone')[0])
+      return [Math.abs(z.x % 40), Math.abs(z.y % 40)]
+    })
+    .toEqual([0, 0])
 })

@@ -4,6 +4,11 @@ import { isoOf, type Field } from './fields'
 import type { ArrowMode, Task } from './types'
 
 /** A link seen from the note whose panel is open. */
+/** The http(s) links found in a text, in order, without the punctuation that ends a sentence. */
+export function linksIn(text: string | undefined): string[] {
+  return [...(text ?? '').matchAll(/https?:\/\/[^\s<>"]+/gi)].map((m) => m[0].replace(/[.,;:!?)\]}'"]+$/, '')).filter((u) => u.length > 8)
+}
+
 export interface LinkRow {
   id: string
   /** Title of the note at the other end. */
@@ -77,6 +82,16 @@ export function DetailPanel({ task, fields, zoneNames, editable, onClose, onTitl
             <p className="read">{task.description || '—'}</p>
           )}
         </label>
+
+        {linksIn(task.description).length > 0 && (
+          <div className="open-links">
+            {linksIn(task.description).map((url, i) => (
+              <a key={i} className="open-link" href={url} target="_blank" rel="noopener noreferrer" title={url}>
+                ↗ Open Link {i + 1}
+              </a>
+            ))}
+          </div>
+        )}
 
         <label>
           <span>Status</span>

@@ -106,3 +106,19 @@ test('with notes colored by a column, the manual color buttons are disabled', as
   await expect(page.getByRole('button', { name: 'More colors' })).toBeDisabled()
   await expect(page.getByRole('button', { name: /^Color #/ }).first()).toBeDisabled()
 })
+
+test('links in a description become "Open Link N" buttons in the details', async ({ page }) => {
+  const s = new FakeSheet({
+    Tasks: [['id', 'title', 'board', 'description'], ['a', 'Alpha', board(0, 0), 'See https://example.com/a, and (https://example.org/b?x=1). Not http://'], ['b', 'Beta', board(300, 0), 'no link']],
+  })
+  await openBoard(page, s)
+  await note(page, 'Alpha').click({ button: 'right' })
+  const links = page.locator('.open-link')
+  await expect(links).toHaveCount(2)
+  await expect(links.nth(0)).toHaveText(/Open Link 1/)
+  await expect(links.nth(0)).toHaveAttribute('href', 'https://example.com/a')
+  await expect(links.nth(1)).toHaveAttribute('href', 'https://example.org/b?x=1')
+  await expect(links.nth(1)).toHaveAttribute('target', '_blank')
+  await note(page, 'Beta').click({ button: 'right' })
+  await expect(page.locator('.open-link')).toHaveCount(0)
+})

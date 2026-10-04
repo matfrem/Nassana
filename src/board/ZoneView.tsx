@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { ZONE_MIN_SIZE, ZONE_TITLE_SIZE } from '../constants'
+import { GRID, ZONE_MIN_SIZE, ZONE_TITLE_SIZE } from '../constants'
 import { headerHeight, zoneLabel } from './zones'
 import type { Zone } from '../types'
 
@@ -92,7 +92,7 @@ export function ZoneView({
     const dy = e.clientY - g.py
     if (!g.moved && Math.hypot(dx, dy) < TAP_SLOP) return
     g.moved = true
-    onDrag(zone.id, g.a + dx / zoom, g.b + dy / zoom)
+    onDrag(zone.id, Math.round((g.a + dx / zoom) / GRID) * GRID, Math.round((g.b + dy / zoom) / GRID) * GRID) // snapped onto the dots
   }
   const headerEnd = (e: React.PointerEvent) => {
     const g = move.current

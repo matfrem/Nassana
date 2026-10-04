@@ -120,6 +120,7 @@ export function BoardView({ source }: { source: Source }) {
   /** Values hidden from the board, kept across changes of the "color by" column and across reloads. */
   const [hidden, setHidden] = useState<HideRule[]>(savedView.hidden)
   const [viewMenu, setViewMenu] = useState(false)
+  const [moreMenu, setMoreMenu] = useState(false)
   const [showLinks, setShowLinksState] = useState(savedView.showLinks)
   const setShowLinks = (on: boolean) => {
     setShowLinksState(on)
@@ -1332,6 +1333,18 @@ export function BoardView({ source }: { source: Source }) {
     return () => window.removeEventListener('keydown', on)
   }, [])
 
+  // A tap anywhere outside an open menu closes it.
+  useEffect(() => {
+    if (!viewMenu && !moreMenu) return
+    const close = (e: PointerEvent) => {
+      if ((e.target as Element | null)?.closest?.('.menu-anchor')) return
+      setViewMenu(false)
+      setMoreMenu(false)
+    }
+    window.addEventListener('pointerdown', close, true)
+    return () => window.removeEventListener('pointerdown', close, true)
+  }, [viewMenu, moreMenu])
+
   const zoomTo = (f: number | 'reset') =>
     setCamera((c) =>
       zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, f === 'reset' ? 1 : c.zoom * f),
@@ -1464,18 +1477,28 @@ export function BoardView({ source }: { source: Source }) {
           </button>
         )}
         {editable && (
-          <button
-            className={tool === 'zone' ? 'primary' : ''}
-            aria-label="Zone"
-            onClick={() => {
-              setSelectedId(null)
-              setSelectedZoneId(null)
-              setEditingId(null)
-              setTool((t) => (t === 'zone' ? 'none' : 'zone'))
-            }}
-          >
-            ▭<span className="label"> Zone</span>
-          </button>
+          <span className="menu-anchor">
+            <button className={tool === 'zone' ? 'primary' : ''} aria-label="More tools" onClick={() => setMoreMenu((v) => !v)}>
+              ⋯
+            </button>
+            {moreMenu && (
+              <div className="menu">
+                <strong>More tools</strong>
+                <button
+                  className={tool === 'zone' ? 'on' : ''}
+                  onClick={() => {
+                    setMoreMenu(false)
+                    setSelectedId(null)
+                    setSelectedZoneId(null)
+                    setEditingId(null)
+                    setTool((t) => (t === 'zone' ? 'none' : 'zone'))
+                  }}
+                >
+                  ▭ Zone
+                </button>
+              </div>
+            )}
+          </span>
         )}
         {(fields.length > 0 || hasStatus || !!sheetId) && (
           <span className="menu-anchor">
