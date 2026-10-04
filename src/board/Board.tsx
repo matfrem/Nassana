@@ -11,7 +11,14 @@ import { StickyNote } from './StickyNote'
 import { zoneOfNote } from './zones'
 import { ZoneView } from './ZoneView'
 
-export type Tool = 'none' | 'pen' | 'eraser' | 'zone' | 'move' | 'link'
+export type Tool = 'none' | 'pen' | 'eraser' | 'zone' | 'move' | 'link' | 'select'
+
+/** One member of a multi-selection. */
+export interface SelItem {
+  kind: 'note' | 'zone' | 'stroke'
+  id: string
+}
+export const selKey = (i: SelItem) => `${i.kind[0]}:${i.id}`
 
 /** A stroke on the board (no noteId) or on a note. */
 export interface StrokeRef {
@@ -28,7 +35,11 @@ interface Props {
   onMoveEnd: (id: string) => void
   selectedId: string | null
   editingId: string | null
-  onSelect: (id: string | null) => void
+  onSelect: (id: string | null, additive?: boolean) => void
+  /** Multi-selection: keys (`n:`, `z:`, `s:` + id) of the selected items, a toggle, and a rectangle pick. */
+  multiKeys: ReadonlySet<string>
+  onToggleSel: (item: SelItem) => void
+  onSelectRect: (items: SelItem[], additive: boolean) => void
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
   /** How a note looks: its pills, whether it is filtered out, and its color. */
@@ -49,7 +60,7 @@ interface Props {
   editingZoneId: string | null
   /** The zone a dragged note is currently over. */
   highlightZoneId: string | null
-  onZoneSelect: (id: string) => void
+  onZoneSelect: (id: string, additive?: boolean) => void
   onZoneOpen: (id: string) => void
   onZoneDragStart: (id: string) => void
   onZoneDrag: (id: string, x: number, y: number) => void
@@ -62,7 +73,7 @@ interface Props {
   onZoneDraw: (rect: { x: number; y: number; w: number; h: number }) => void
   /** The stroke picked with the move tool (only meaningful while that tool is active). */
   selectedStroke: StrokeRef | null
-  onStrokeSelect: (ref: StrokeRef | null) => void
+  onStrokeSelect: (ref: StrokeRef | null, additive?: boolean) => void
   /** While dragging: the stroke's new points, in the coordinates of its owner (board or note). */
   onStrokeMove: (ref: StrokeRef, points: number[]) => void
   onStrokeMoveEnd: (ref: StrokeRef) => void
@@ -86,7 +97,7 @@ interface Props {
 const TAP_SLOP = 4
 const ERASER_RADIUS = 12 // screen px
 
-type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move' | 'link'
+type Mode = 'idle' | 'pan' | 'draw' | 'erase' | 'pinch' | 'zone' | 'move' | 'link' | 'select'
 
 export function Board({
   tasks,
@@ -97,6 +108,9 @@ export function Board({
   selectedId,
   editingId,
   onSelect,
+  multiKeys,
+  onToggleSel,
+  onSelectRect,
   onRename,
   onRenameDone,
   noteView,
@@ -159,6 +173,8 @@ export function Board({
   const linkFrom = useRef<string | null>(null)
   const [liveLink, setLiveLink] = useState<LiveLink | null>(null)
   const zoneStart = useRef<{ x: number; y: number } | null>(null)
+  const selStart = useRef<{ x: number; y: number } | null>(null)
+  const [liveSel, setLiveSel] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [liveZone, setLiveZone] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [panning, setPanning] = useState(false)
 
@@ -347,6 +363,10 @@ export function Board({
         mode.current = 'link'
         updateLive(w.x, w.y)
       } else mode.current = 'pan'
+    } else if (tool === 'select' || (tool === 'none' && editable && e.shiftKey)) {
+      // Drag a rectangle to select what it touches (Shift+drag on the background with a mouse, or the Select tool).
+      selStart.current = world(e)
+      mode.current = 'select'
     } else if (tool === 'move') {
       // Press on a stroke to pick it and drag it; press on empty space to drop the selection.
       const w = world(e)
@@ -354,6 +374,8 @@ export function Board({
       mode.current = 'move'
       if (!hit) {
         onStrokeSelect(null)
+      } else if (e.ctrlKey || e.metaKey || e.shiftKey) {
+        onStrokeSelect(hit.ref, true) // Ctrl/Shift+click adds or removes it from the selection
       } else {
         onStrokeSelect(hit.ref)
         const xs = hit.p.filter((_, i) => i % 2 === 0)
@@ -416,6 +438,10 @@ export function Board({
       if (!m.moved && Math.hypot(dx, dy) * camRef.current.zoom < TAP_SLOP) return
       m.moved = true
       onStrokeMove(m.ref, m.orig.map((v, i) => Math.round((v + (i % 2 === 0 ? dx : dy)) * 10) / 10))
+    } else if (mode.current === 'select' && selStart.current) {
+      const a = selStart.current
+      const w = world(e)
+      setLiveSel({ x: Math.min(a.x, w.x), y: Math.min(a.y, w.y), w: Math.abs(w.x - a.x), h: Math.abs(w.y - a.y) })
     } else if (mode.current === 'zone' && zoneStart.current) {
       const a = zoneStart.current
       const w = world(e)
@@ -446,6 +472,35 @@ export function Board({
     } else if (mode.current === 'move') {
       if (moving.current?.moved) onStrokeMoveEnd(moving.current.ref)
       moving.current = null
+    } else if (mode.current === 'select') {
+      const r = liveSel
+      selStart.current = null
+      setLiveSel(null)
+      const min = 8 / camRef.current.zoom
+      if (finished && r && r.w >= min && r.h >= min) {
+        const items: SelItem[] = []
+        const hidden = (t: Task) => noteViewRef.current(t).hidden || stack.tucked.has(t.id)
+        for (const t of tasks) {
+          if (!hidden(t) && t.board.x < r.x + r.w && t.board.x + NOTE_SIZE > r.x && t.board.y < r.y + r.h && t.board.y + NOTE_SIZE > r.y) items.push({ kind: 'note', id: t.id })
+        }
+        for (const z of zones) if (z.x >= r.x && z.y >= r.y && z.x + z.w <= r.x + r.w && z.y + z.h <= r.y + r.h) items.push({ kind: 'zone', id: z.id })
+        for (const st of strokesRef.current) {
+          for (let i = 0; i < st.p.length; i += 2) {
+            if (st.p[i] >= r.x && st.p[i] <= r.x + r.w && st.p[i + 1] >= r.y && st.p[i + 1] <= r.y + r.h) {
+              items.push({ kind: 'stroke', id: st.id })
+              break
+            }
+          }
+        }
+        onSelectRect(items, e.shiftKey)
+      } else if (finished && tool === 'select') {
+        // A tap with the Select tool: toggles the note or zone under it, or clears the selection.
+        const target = e.target as Element | null
+        const zoneId = target?.closest?.('.zone-header')?.parentElement?.getAttribute('data-zone-id')
+        if (tap.current.noteId) onToggleSel({ kind: 'note', id: tap.current.noteId })
+        else if (zoneId) onToggleSel({ kind: 'zone', id: zoneId })
+        else onSelectRect([], false)
+      }
     } else if (mode.current === 'zone') {
       // Ignore accidental taps: a zone must be at least ~40 screen pixels each way.
       const min = 40 / camRef.current.zoom
@@ -536,7 +591,7 @@ export function Board({
             zone={z}
             zoom={camera.zoom}
             editable={editable && tool === 'none'}
-            selected={z.id === selectedZoneId}
+            selected={z.id === selectedZoneId || multiKeys.has(`z:${z.id}`)}
             editing={z.id === editingZoneId}
             highlight={z.id === highlightZoneId}
             count={counts.get(z.id) ?? 0}
@@ -552,6 +607,9 @@ export function Board({
             onRenameDone={onZoneRenameDone}
           />
         ))}
+        {liveSel && (
+          <div className="sel-rect" style={{ transform: `translate(${liveSel.x}px, ${liveSel.y}px)`, width: liveSel.w, height: liveSel.h }} />
+        )}
         {liveZone && (
           <div
             className="zone live"
@@ -601,7 +659,7 @@ export function Board({
             task={t}
             zoom={camera.zoom}
             editable={editable && tool === 'none'}
-            selected={t.id === selectedId}
+            selected={t.id === selectedId || multiKeys.has(`n:${t.id}`)}
             editing={t.id === editingId}
             onMove={onMove}
             onMoveEnd={onMoveEnd}
@@ -613,7 +671,7 @@ export function Board({
           />
           )
         })}
-        <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} selectedId={tool === 'move' && selectedStroke && !selectedStroke.noteId ? selectedStroke.id : null} />
+        <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} selected={new Set([...(tool === 'move' && selectedStroke && !selectedStroke.noteId ? [selectedStroke.id] : []), ...[...multiKeys].filter((k) => k.startsWith('s:')).map((k) => k.slice(2))])} />
       </div>
     </div>
   )

@@ -14,20 +14,20 @@ export const Ink = memo(function Ink({
   strokes,
   live,
   liveClip,
-  selectedId,
+  selected,
 }: {
   strokes: Stroke[]
   live: Stroke | null
   /** While drawing on a note, the stroke is cut at the note's edges, as it will be once saved. */
   liveClip: Clip | null
-  /** The stroke picked with the move tool. */
-  selectedId: string | null
+  /** Ids of the strokes that are selected (picked with the move tool, or in a multi-selection). */
+  selected: ReadonlySet<string>
 }) {
   return (
     <svg className="ink" width={SPAN} height={SPAN} viewBox={`${-SPAN / 2} ${-SPAN / 2} ${SPAN} ${SPAN}`} style={{ left: -SPAN / 2, top: -SPAN / 2 }}>
       {strokes.map((s) => (
         <g key={s.id}>
-          {s.id === selectedId && <path className="stroke-halo" d={pathFor(s.p)} style={{ strokeWidth: `calc(${s.w}px + 12px / var(--zoom, 1))` }} />}
+          {selected.has(s.id) && <path className="stroke-halo" d={pathFor(s.p)} style={{ strokeWidth: `calc(${s.w}px + 12px / var(--zoom, 1))` }} />}
           <path d={pathFor(s.p)} stroke={s.c} strokeWidth={s.w} />
         </g>
       ))}

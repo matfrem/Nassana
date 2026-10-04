@@ -7,6 +7,7 @@ import { applyZones, centerOf, encodeZone, notesInZone, zoneAt, zoneLabel } from
 import { fitCamera, fitRect, screenToWorld, zoomAt } from './board/camera'
 import { GRID, INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE_HEADER } from './constants'
 import { demoTasks } from './data'
+import { selKey, type SelItem } from './board/Board'
 import { ColorPicker } from './ColorPicker'
 import { byFrequency } from './colorUtil'
 import { DetailPanel, type LinkRow } from './DetailPanel'
@@ -65,6 +66,17 @@ const STATUS_FIELD: Field = { key: 'status', label: 'Status', index: -1, shown: 
 
 const POLL_MS = 30_000
 const SAVE_DELAY_MS = 800
+
+/** Everything that moves together when a member of the multi-selection (or a selected zone's content) is dragged. */
+interface Group {
+  leader: string
+  start: { x: number; y: number }
+  notes: Map<string, { x: number; y: number }>
+  zones: Map<string, { x: number; y: number }>
+  strokes: Map<string, number[]>
+  dx: number
+  dy: number
+}
 
 type UndoOp =
   | { kind: 'add'; ref: { id: string; noteId?: string } }
@@ -179,6 +191,16 @@ export function BoardView({ source }: { source: Source }) {
   const [tool, setTool] = useState<Tool>('none')
   /** The color picker sheet, when open: it edits whatever `onChange` closes over. */
   const [picker, setPicker] = useState<{ title: string; value: string; onChange: (c: string) => void } | null>(null)
+  /** Multi-selection (Ctrl/Shift+click, rectangle, Select tool). While it is not empty, the single selections are empty. */
+  const [multi, setMulti] = useState<SelItem[]>([])
+  const multiRef = useRef(multi)
+  multiRef.current = multi
+  const multiKeys = useMemo(() => new Set(multi.map(selKey)), [multi])
+  const multiKeysRef = useRef(multiKeys)
+  multiKeysRef.current = multiKeys
+  /** The group being moved (its starting positions), and the functions that move it (defined further down). */
+  const group = useRef<Group | null>(null)
+  const groupApi = useRef<{ move: (leader: string, x: number, y: number) => void; end: () => void }>({ move: () => {}, end: () => {} })
   const [penColor, setPenColor] = useState(INK_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS.thin)
   const strokesRef = useRef(strokes)
@@ -320,6 +342,7 @@ export function BoardView({ source }: { source: Source }) {
   const tuckedRef = useRef<Map<string, string>>(new Map())
   const hiddenRef = useRef<(t: Task) => boolean>(() => false)
   const onMove = useCallback((id: string, x: number, y: number) => {
+    if (multiKeysRef.current.has(`n:${id}`)) return groupApi.current.move(`n:${id}`, x, y) // a selected note drags the whole selection
     setDraggingId(id)
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, board: { ...t.board, x, y } } : t)))
     const cx = x + NOTE_SIZE / 2
@@ -460,6 +483,7 @@ export function BoardView({ source }: { source: Source }) {
   /** Dropping a note in a zone gives it that zone's status. Outside every zone, the status is kept. */
   const onMoveEnd = useCallback(
     (id: string, at?: { x: number; y: number }) => {
+      if (group.current) return groupApi.current.end()
       setDraggingId(null)
       const d = dwell.current
       clearTimeout(d.timer)
@@ -497,6 +521,7 @@ export function BoardView({ source }: { source: Source }) {
   const onZoneDragStart = (id: string) => {
     const z = zonesRef.current.find((zz) => zz.id === id)
     if (!z) return
+    if (multiKeysRef.current.has(`z:${id}`)) return // a selected zone drags the whole selection (see onZoneDrag)
     const carried = notesInZone(zonesRef.current, z, tasksRef.current)
     // Strokes drawn entirely inside the zone travel with it; the ones crossing its border stay.
     const inside = strokesRef.current.filter((st) => {
@@ -514,6 +539,7 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const onZoneDrag = (id: string, x: number, y: number) => {
+    if (multiKeysRef.current.has(`z:${id}`)) return groupApi.current.move(`z:${id}`, x, y)
     const d = zoneDrag.current
     if (!d) return
     const dx = x - d.x
@@ -539,6 +565,7 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const onZoneDragEnd = (id: string) => {
+    if (group.current) return groupApi.current.end()
     const d = zoneDrag.current
     zoneDrag.current = null
     markZoneDirty(id)
@@ -702,6 +729,10 @@ export function BoardView({ source }: { source: Source }) {
     const zone = zones.find((z) => z.id === id)
     if (!zone) return
     if (!window.confirm(`Delete the zone "${zoneLabel(zone) || 'Untitled zone'}"? Its notes stay where they are.`)) return
+    removeZoneNow(zone)
+  }
+
+  const removeZoneNow = (zone: Zone) => {
     setZones((zs) => zs.filter((z) => z.id !== zone.id))
     setSelectedZoneId(null)
     setZoneDetailId(null)
@@ -903,6 +934,11 @@ export function BoardView({ source }: { source: Source }) {
     const label = task.title.length > 40 ? task.title.slice(0, 40) + '…' : task.title
     const where = sheetId ? ' and its row in the Sheet' : ''
     if (!window.confirm(`Delete "${label}"${where}?`)) return
+    deleteTaskNow(task)
+  }
+
+  /** Deletes a note, its links, and its row in the Sheet; its sub-tasks move up to its own parent. */
+  const deleteTaskNow = (task: Task) => {
     setTasks((ts) => ts.filter((t) => t.id !== task.id))
     setSelectedId(null)
     dirty.current.delete(task.id)
@@ -1013,6 +1049,7 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const onStrokeMove = (ref: StrokeRef, p: number[]) => {
+    if (!ref.noteId && multiKeysRef.current.has(`s:${ref.id}`)) return groupApi.current.move(`s:${ref.id}`, p[0], p[1])
     if (moveFrom.current?.id !== ref.id) {
       const cur = findStroke(ref)
       moveFrom.current = cur ? { id: ref.id, p: [...cur.p] } : null
@@ -1021,6 +1058,7 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   const onStrokeMoveEnd = (ref: StrokeRef) => {
+    if (group.current) return groupApi.current.end()
     if (moveFrom.current?.id === ref.id) pushUndo({ kind: 'move', ref: { id: ref.id, noteId: ref.noteId }, from: moveFrom.current.p })
     moveFrom.current = null
     persistStrokeMove(ref)
@@ -1120,6 +1158,7 @@ export function BoardView({ source }: { source: Source }) {
       setZoneDetailId(null)
       setSelectedStroke(null)
       setSelectedLinkId(null)
+      setMulti([])
       setTool('none')
       await flush() // do not leave edit mode (which resumes polling) with unsaved changes
       setEditable(false)
@@ -1135,7 +1174,9 @@ export function BoardView({ source }: { source: Source }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') void toggleEditRef.current()
+      if (e.key !== 'Escape') return
+      if (multiRef.current.length) setMulti([])
+      else void toggleEditRef.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1290,8 +1331,198 @@ export function BoardView({ source }: { source: Source }) {
     markDirty(id, 'status')
   }
 
-  // ---- keyboard (PC): arrows move, Delete deletes, Ctrl+C / Ctrl+V copy and paste a note ----
-  const clipboard = useRef<Task | null>(null)
+  // ---- multi-selection ----
+  const singleItems = (): SelItem[] => [
+    ...(selectedId ? [{ kind: 'note' as const, id: selectedId }] : []),
+    ...(selectedZoneId ? [{ kind: 'zone' as const, id: selectedZoneId }] : []),
+    ...(tool === 'move' && selectedStroke && !selectedStroke.noteId ? [{ kind: 'stroke' as const, id: selectedStroke.id }] : []),
+  ]
+
+  const applyMulti = (items: SelItem[]) => {
+    const seen = new Set<string>()
+    const unique = items.filter((i) => !seen.has(selKey(i)) && seen.add(selKey(i)))
+    setMulti(unique)
+    if (unique.length) {
+      setSelectedId(null)
+      setSelectedZoneId(null)
+      setSelectedStroke(null)
+      setSelectedLinkId(null)
+      setDetailId(null)
+      setZoneDetailId(null)
+      setEditingId(null)
+    }
+  }
+
+  /** Ctrl/Shift+click: adds the item to the selection, or removes it when it is already in. */
+  const toggleSel = (item: SelItem) => {
+    const cur = multiRef.current.length ? multiRef.current : singleItems()
+    const k = selKey(item)
+    applyMulti(cur.some((i) => selKey(i) === k) ? cur.filter((i) => selKey(i) !== k) : [...cur, item])
+  }
+
+  const selectRect = (items: SelItem[], additive: boolean) =>
+    applyMulti(additive ? [...(multiRef.current.length ? multiRef.current : singleItems()), ...items] : items)
+
+  /** The notes, zones and strokes that move when the selection moves: the selected ones plus what sits inside selected zones. */
+  const buildGroup = (leader: string, start: { x: number; y: number }): Group => {
+    const sel = multiRef.current
+    const noteIds = new Set(sel.filter((i) => i.kind === 'note').map((i) => i.id))
+    const zoneIds = new Set(sel.filter((i) => i.kind === 'zone').map((i) => i.id))
+    const strokeIds = new Set(sel.filter((i) => i.kind === 'stroke').map((i) => i.id))
+    for (const z of zonesRef.current.filter((zz) => zoneIds.has(zz.id))) {
+      notesInZone(zonesRef.current, z, tasksRef.current).forEach((t) => noteIds.add(t.id))
+      for (const st of strokesRef.current) {
+        let inside = true
+        for (let i = 0; i < st.p.length && inside; i += 2) inside = st.p[i] >= z.x && st.p[i] <= z.x + z.w && st.p[i + 1] >= z.y && st.p[i + 1] <= z.y + z.h
+        if (inside) strokeIds.add(st.id)
+      }
+    }
+    return {
+      leader,
+      start,
+      notes: new Map(tasksRef.current.filter((t) => noteIds.has(t.id)).map((t) => [t.id, { x: t.board.x, y: t.board.y }])),
+      zones: new Map(zonesRef.current.filter((z) => zoneIds.has(z.id)).map((z) => [z.id, { x: z.x, y: z.y }])),
+      strokes: new Map(strokesRef.current.filter((st) => strokeIds.has(st.id)).map((st) => [st.id, st.p])),
+      dx: 0,
+      dy: 0,
+    }
+  }
+
+  const shiftGroup = (g: Group, dx: number, dy: number) => {
+    g.dx = dx
+    g.dy = dy
+    if (g.notes.size) setTasks((ts) => ts.map((t) => (g.notes.has(t.id) ? { ...t, board: { ...t.board, x: g.notes.get(t.id)!.x + dx, y: g.notes.get(t.id)!.y + dy } } : t)))
+    if (g.zones.size) setZones((zs) => zs.map((z) => (g.zones.has(z.id) ? { ...z, x: g.zones.get(z.id)!.x + dx, y: g.zones.get(z.id)!.y + dy } : z)))
+    if (g.strokes.size) {
+      const r1 = (v: number) => Math.round(v * 10) / 10
+      setStrokes((ss) => ss.map((st) => (g.strokes.has(st.id) ? { ...st, p: g.strokes.get(st.id)!.map((v, i) => r1(v + (i % 2 === 0 ? dx : dy))) } : st)))
+    }
+  }
+
+  /** A member of the selection is being dragged to (x, y) (its own coordinates): everything follows by the same offset. */
+  groupApi.current.move = (leaderKey, x, y) => {
+    if (!group.current) {
+      const kind = leaderKey[0]
+      const start =
+        kind === 'n'
+          ? tasksRef.current.find((t) => `n:${t.id}` === leaderKey)?.board
+          : kind === 'z'
+            ? zonesRef.current.find((z) => `z:${z.id}` === leaderKey)
+            : (() => {
+                const p = strokesRef.current.find((st) => `s:${st.id}` === leaderKey)?.p
+                return p ? { x: p[0], y: p[1] } : undefined
+              })()
+      if (!start) return
+      group.current = buildGroup(leaderKey, { x: start.x, y: start.y })
+    }
+    const g = group.current
+    shiftGroup(g, x - g.start.x, y - g.start.y)
+  }
+
+  /** The drag is over (or an arrow key moved the group): save everything that moved. */
+  groupApi.current.end = () => {
+    const g = group.current
+    group.current = null
+    setDraggingId(null)
+    if (!g || (g.dx === 0 && g.dy === 0)) return
+    g.notes.forEach((p, id) => {
+      markDirty(id, 'board')
+      onMoveEnd(id, { x: p.x + g.dx, y: p.y + g.dy }) // a note may have landed in another zone
+    })
+    g.zones.forEach((_, id) => markZoneDirty(id))
+    if (g.strokes.size && sheetId) {
+      g.strokes.forEach((_, id) => dirtyStrokes.current.add(id))
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
+    }
+  }
+
+  const moveMulti = (dx: number, dy: number) => {
+    if (!multiRef.current.length) return
+    const first = multiRef.current[0]
+    const key = selKey(first)
+    const g = buildGroup(key, { x: 0, y: 0 })
+    group.current = g
+    shiftGroup(g, dx, dy)
+    groupApi.current.end()
+  }
+
+  const colorMulti = (color: string) => {
+    const ids = new Set(multiRef.current.filter((i) => i.kind === 'note').map((i) => i.id))
+    setTasks((ts) => ts.map((t) => (ids.has(t.id) ? { ...t, board: { ...t.board, color } } : t)))
+    ids.forEach((id) => markDirty(id, 'board'))
+  }
+
+  const deleteMulti = () => {
+    const sel = multiRef.current
+    const notes = sel.filter((i) => i.kind === 'note')
+    const zs = sel.filter((i) => i.kind === 'zone')
+    const sts = sel.filter((i) => i.kind === 'stroke')
+    const parts = [notes.length && `${notes.length} note${notes.length > 1 ? 's' : ''}`, zs.length && `${zs.length} zone${zs.length > 1 ? 's' : ''}`, sts.length && `${sts.length} stroke${sts.length > 1 ? 's' : ''}`].filter(Boolean)
+    if (!parts.length || !window.confirm(`Delete ${parts.join(', ')}${notes.length && sheetId ? ' and the rows in the Sheet' : ''}?${zs.length ? ' Notes inside deleted zones stay.' : ''}`)) return
+    const stIds = sts.map((i) => i.id)
+    const items = stIds.flatMap((id) => {
+      const stroke = findStroke({ id })
+      return stroke ? [{ stroke }] : []
+    })
+    if (items.length) pushUndo({ kind: 'remove', items })
+    notes.forEach((i) => {
+      const t = tasksRef.current.find((tt) => tt.id === i.id)
+      if (t) deleteTaskNow(t)
+    })
+    zs.forEach((i) => {
+      const z = zonesRef.current.find((zz) => zz.id === i.id)
+      if (z) removeZoneNow(z)
+    })
+    if (stIds.length) {
+      removeStrokes(stIds)
+      deleteStrokeRows(stIds)
+    }
+    setMulti([])
+  }
+
+  /** Pastes copies of notes. Several notes keep their layout (placed to the right of the group), their sub-task structure and the links between them. */
+  const pasteTasks = (src: Task[]) => {
+    if (src.length === 1) return duplicateTask(src[0])
+    const ids = new Map(src.map((t) => [t.id, crypto.randomUUID().slice(0, 8)]))
+    const width = Math.max(...src.map((t) => t.board.x)) + NOTE_SIZE - Math.min(...src.map((t) => t.board.x))
+    const dx = Math.round((width + 60) / GRID) * GRID
+    const copies: Task[] = src.map((t) => {
+      const id = ids.get(t.id)!
+      return {
+        ...t,
+        id,
+        board: { ...t.board, x: t.board.x + dx },
+        autoPlaced: false,
+        values: { ...t.values },
+        drawing: t.drawing?.map((st, i) => ({ ...st, id: `${id}-${i}`, p: [...st.p] })),
+        parent: t.parent && ids.has(t.parent) ? ids.get(t.parent) : t.parent,
+      }
+    })
+    const newLinks: Link[] = linksRef.current
+      .filter((l) => ids.has(l.from) && ids.has(l.to))
+      .map((l) => ({ ...l, id: crypto.randomUUID().slice(0, 8), from: ids.get(l.from)!, to: ids.get(l.to)! }))
+    setTasks((ts) => [...ts, ...copies])
+    setLinks((ls) => [...ls, ...newLinks])
+    applyMulti(copies.map((t) => ({ kind: 'note' as const, id: t.id })))
+    if (!sheetId) return
+    setSave({ kind: 'saving' })
+    void enqueue(async () => {
+      try {
+        for (const c of copies) await appendTask(sheetId, c)
+        for (const l of newLinks) await appendBoardRow(sheetId, l.id, 'link', encodeLink(l))
+        setSave({ kind: 'saved' })
+      } catch (e) {
+        const gone = new Set(copies.map((c) => c.id))
+        setTasks((ts) => ts.filter((t) => !gone.has(t.id)))
+        setLinks((ls) => ls.filter((l) => !newLinks.some((n) => n.id === l.id)))
+        fail(e)
+      }
+    })
+  }
+
+  // ---- keyboard (PC): arrows move, Delete deletes, Ctrl+C / Ctrl+V copy and paste, Ctrl+A selects every note ----
+  const clipboard = useRef<Task[]>([])
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {})
   keyHandler.current = (e) => {
     const el = e.target as HTMLElement | null
@@ -1300,7 +1531,16 @@ export function BoardView({ source }: { source: Source }) {
     const step = arrows[e.key]
     const del = e.key === 'Delete' || e.key === 'Backspace'
     const mod = e.ctrlKey || e.metaKey
-    if (tool === 'move' && selectedStroke) {
+    const key = e.key.toLowerCase()
+    if (multi.length && (tool === 'none' || tool === 'select' || tool === 'move')) {
+      if (step && !mod) (e.preventDefault(), moveMulti(step[0] * GRID, step[1] * GRID))
+      else if (del && !mod) (e.preventDefault(), deleteMulti())
+      else if (mod && key === 'c') {
+        const ids = new Set(multi.filter((i) => i.kind === 'note').map((i) => i.id))
+        const notes = tasksRef.current.filter((t) => ids.has(t.id))
+        if (notes.length) (e.preventDefault(), (clipboard.current = notes))
+      }
+    } else if (tool === 'move' && selectedStroke) {
       if (step) (e.preventDefault(), nudgeStroke(step[0] * GRID, step[1] * GRID))
       else if (del) (e.preventDefault(), deleteSelectedStroke())
     } else if (tool === 'none' && selectedId && !editingId) {
@@ -1314,17 +1554,17 @@ export function BoardView({ source }: { source: Source }) {
       } else if (del && !mod) {
         e.preventDefault()
         deleteSelected()
+      } else if (mod && key === 'c') {
+        e.preventDefault()
+        clipboard.current = [task]
       }
     }
-    if (tool === 'none' && mod && e.key.toLowerCase() === 'c' && selectedId && !editingId) {
-      const task = tasksRef.current.find((t) => t.id === selectedId)
-      if (task) {
-        e.preventDefault()
-        clipboard.current = task
-      }
-    } else if (tool === 'none' && mod && e.key.toLowerCase() === 'v' && clipboard.current) {
+    if ((tool === 'none' || tool === 'select') && mod && key === 'v' && clipboard.current.length) {
       e.preventDefault()
-      duplicateTask(clipboard.current)
+      pasteTasks(clipboard.current)
+    } else if ((tool === 'none' || tool === 'select') && mod && key === 'a' && !editingId) {
+      e.preventDefault()
+      applyMulti(tasksRef.current.filter((t) => !noteView(t).hidden && !tuckedRef.current.has(t.id)).map((t) => ({ kind: 'note' as const, id: t.id })))
     }
   }
   useEffect(() => {
@@ -1332,6 +1572,10 @@ export function BoardView({ source }: { source: Source }) {
     window.addEventListener('keydown', on)
     return () => window.removeEventListener('keydown', on)
   }, [])
+
+  useEffect(() => {
+    if (tool !== 'none' && tool !== 'select' && tool !== 'move') setMulti([])
+  }, [tool])
 
   // A tap anywhere outside an open menu closes it.
   useEffect(() => {
@@ -1360,7 +1604,12 @@ export function BoardView({ source }: { source: Source }) {
         onMoveEnd={onMoveEnd}
         selectedId={editable ? selectedId : null}
         editingId={editingId}
-        onSelect={(id) => {
+        multiKeys={multiKeys}
+        onToggleSel={toggleSel}
+        onSelectRect={selectRect}
+        onSelect={(id, additive) => {
+          if (id && additive) return toggleSel({ kind: 'note', id })
+          setMulti([])
           setSelectedId(id)
           setSelectedZoneId(null)
           setSelectedLinkId(null)
@@ -1399,7 +1648,9 @@ export function BoardView({ source }: { source: Source }) {
           setSelectedId(null)
           setDetailId(null)
         }}
-        onZoneSelect={(id) => {
+        onZoneSelect={(id, additive) => {
+          if (additive) return toggleSel({ kind: 'zone', id })
+          setMulti([])
           setSelectedZoneId(id)
           setSelectedId(null)
         }}
@@ -1412,7 +1663,12 @@ export function BoardView({ source }: { source: Source }) {
         onZoneRenameDone={() => setEditingZoneId(null)}
         onZoneDraw={onZoneDraw}
         selectedStroke={selectedStroke}
-        onStrokeSelect={setSelectedStroke}
+        onStrokeSelect={(ref, additive) => {
+          if (ref && !ref.noteId && additive) return toggleSel({ kind: 'stroke', id: ref.id })
+          if (ref && !ref.noteId && multiKeysRef.current.has(`s:${ref.id}`)) return // pressing a member keeps the selection: it is about to drag
+          setMulti([])
+          setSelectedStroke(ref)
+        }}
         onStrokeMove={onStrokeMove}
         onStrokeMoveEnd={onStrokeMoveEnd}
         strokes={strokes}
@@ -1478,7 +1734,7 @@ export function BoardView({ source }: { source: Source }) {
         )}
         {editable && (
           <span className="menu-anchor">
-            <button className={tool === 'zone' ? 'primary' : ''} aria-label="More tools" onClick={() => setMoreMenu((v) => !v)}>
+            <button className={tool === 'zone' || tool === 'select' ? 'primary' : ''} aria-label="More tools" onClick={() => setMoreMenu((v) => !v)}>
               ⋯
             </button>
             {moreMenu && (
@@ -1495,6 +1751,18 @@ export function BoardView({ source }: { source: Source }) {
                   }}
                 >
                   ▭ Zone
+                </button>
+                <button
+                  className={tool === 'select' ? 'on' : ''}
+                  onClick={() => {
+                    setMoreMenu(false)
+                    setSelectedId(null)
+                    setSelectedZoneId(null)
+                    setEditingId(null)
+                    setTool((t) => (t === 'select' ? 'none' : 'select'))
+                  }}
+                >
+                  ⬚ Select
                 </button>
               </div>
             )}
@@ -1562,6 +1830,61 @@ export function BoardView({ source }: { source: Source }) {
         <button onClick={() => zoomTo('reset')}>{Math.round(camera.zoom * 100)}%</button>
         <button onClick={() => zoomTo(1.25)} aria-label="Zoom in">+</button>
       </div>
+
+      {editable && multi.length > 0 && !editingId && (
+        <div className="selection-bar">
+          <span className="multi-count">{multi.length} selected</span>
+          {multi.some((i) => i.kind === 'note') && (
+            <>
+              {NOTE_COLORS.map((c) => (
+                <button
+                  key={c}
+                  className="swatch"
+                  style={{ background: c }}
+                  aria-label={`Color ${c}`}
+                  disabled={!!colorBy}
+                  title={colorBy ? 'Notes are colored by a column: switch to "Manual color" to pick one' : undefined}
+                  onClick={() => colorMulti(c)}
+                />
+              ))}
+              <button
+                className="more-colors"
+                aria-label="More colors"
+                disabled={!!colorBy}
+                onClick={() => {
+                  const first = tasks.find((t) => multi.some((i) => i.kind === 'note' && i.id === t.id))
+                  setPicker({ title: 'Color of the selected notes', value: first?.board.color ?? NOTE_COLORS[0], onChange: colorMulti })
+                }}
+              >
+                🎨
+              </button>
+              <span className="sep" />
+              <button
+                aria-label="Duplicate"
+                onClick={() => {
+                  const ids = new Set(multi.filter((i) => i.kind === 'note').map((i) => i.id))
+                  pasteTasks(tasks.filter((t) => ids.has(t.id)))
+                }}
+              >
+                ⧉ Duplicate
+              </button>
+            </>
+          )}
+          <button className="danger" aria-label="Delete selection" onClick={deleteMulti}>
+            🗑 Delete
+          </button>
+          <button aria-label="Clear selection" onClick={() => setMulti([])}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      {editable && tool === 'select' && multi.length === 0 && (
+        <div className="selection-bar zone-bar">
+          <span>Drag a rectangle to select; tap a note or zone to add it</span>
+          <button onClick={() => setTool('none')}>Done</button>
+        </div>
+      )}
 
       {editable && tool === 'none' && selectedId && !editingId && !detailId && (
         <div className="selection-bar">

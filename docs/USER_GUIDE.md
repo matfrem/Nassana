@@ -54,9 +54,27 @@ in the details panel. `title` and `description` are fixed.
 | ← ↑ → ↓ | Move the selected note, or the picked stroke with the Move tool, by one grid step (40 units) |
 | Delete / Backspace | Delete the selected note (asks first) or the picked stroke |
 | Ctrl/⌘ + C, Ctrl/⌘ + V | Copy and paste a note (a paste is a duplicate; paste again for more) |
-| Esc | Leave Edit mode |
+| Ctrl/⌘ + A | Select every visible note |
+| Esc | Clear the selection, or (nothing selected) leave Edit mode |
 
 Right-click on a note selects it and opens its details. **Undo** in the drawing bar undoes the last drawing action — a stroke added, erased, deleted or moved (up to 100 steps) — and is greyed out when there is nothing left. While notes are colored by a column, the manual color buttons are disabled.
+
+## Selecting several things at once (Edit mode)
+
+- **Computer**: Ctrl/⌘ or Shift + click adds or removes a note, a zone (its title strip) or a drawing stroke (with the Move tool); Shift + drag on the background draws a selection rectangle (notes and strokes it touches, zones it fully contains).
+- **Phone**: ⋯ → **⬚ Select**: tap notes or zones to add or remove them, drag to select a rectangle.
+- The bar then reads "N selected": colors for the selected notes, **Duplicate**, **Delete** (one confirmation), ✕ to clear. Esc or a tap on the background clears too.
+- Dragging any selected item (or the arrow keys) moves them all, snapped to the grid. A selected zone carries its notes and the strokes inside it, each moved once. Dragging a member never makes it a sub-task.
+- Ctrl+C / Ctrl+V on several notes pastes copies to the right of the group, with the same layout, the same sub-task structure and the links between them.
+- Not covered yet (see [TODO](TODO.md)): undo of group moves and deletes, copying zones and strokes.
+
+## Other tools: the ⋯ menu
+
+Rarely used tools live under **⋯**: **▭ Zone** (draw a zone) and **⬚ Select**. Zones, like notes, snap to the grid when dragged.
+
+## Links in descriptions
+
+Every `http(s)://…` link found in a note's description gets an **↗ Open Link N** button under the text in the details panel (it opens in a new tab).
 
 ## Zones: a scrum board
 

@@ -15,7 +15,7 @@ interface Props {
   highlight: boolean
   /** Number of notes inside. */
   count: number
-  onSelect: (id: string) => void
+  onSelect: (id: string, additive?: boolean) => void
   /** Double tap/click on the title strip: open the zone's details. */
   onOpen: (id: string) => void
   /** Multi-touch state from the board: while two fingers are down (or after a pinch began), nothing may move. */
@@ -107,7 +107,7 @@ export function ZoneView({
         onOpen(zone.id)
       } else {
         lastTap.current = { t: Date.now(), x: e.clientX, y: e.clientY }
-        onSelect(zone.id)
+        onSelect(zone.id, e.ctrlKey || e.metaKey || e.shiftKey)
       }
     }
   }
@@ -147,6 +147,7 @@ export function ZoneView({
 
   return (
     <div
+      data-zone-id={zone.id}
       className={`zone${selected ? ' selected' : ''}${highlight ? ' drop' : ''}`}
       style={{
         transform: `translate(${zone.x}px, ${zone.y}px)`,

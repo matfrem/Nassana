@@ -783,3 +783,5 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .open-links { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 4px; }
 .open-link { padding: 6px 12px; border: 1px solid var(--ui-border); border-radius: 8px; color: var(--accent); text-decoration: none; font-size: 14px; font-weight: 600; }
 .open-link:hover { background: rgba(128, 128, 128, 0.15); }
+.sel-rect { position: absolute; top: 0; left: 0; border: calc(1.5px / var(--zoom, 1)) dashed var(--accent); background: rgba(59, 130, 246, 0.12); pointer-events: none; }
+.multi-count { font-weight: 600; font-size: 14px; padding: 0 6px; white-space: nowrap; }

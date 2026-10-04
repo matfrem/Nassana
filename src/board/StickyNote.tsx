@@ -16,7 +16,7 @@ interface Props {
   onMove: (id: string, x: number, y: number) => void
   /** Called when a drag ends (this is where we save to the Sheet). */
   onMoveEnd: (id: string) => void
-  onSelect: (id: string) => void
+  onSelect: (id: string, additive?: boolean) => void
   /** Double tap/click: open the details. */
   onOpen: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -140,7 +140,7 @@ export function StickyNote({
         onOpen(task.id)
       } else {
         lastTap.current = { t: Date.now(), x: e.clientX, y: e.clientY }
-        onSelect(task.id)
+        onSelect(task.id, e.ctrlKey || e.metaKey || e.shiftKey)
       }
     }
   }
