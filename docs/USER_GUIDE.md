@@ -42,6 +42,9 @@ at the bottom. Changing the status moves the note into the zone of that name.
 
 ### Properties shown on notes
 
+Pills of dropdown columns are colored like the legend: the color picked in the app, else the Sheet's own color, else a tone (priorities), else a palette color.
+
+
 Any column whose header ends with `#` (`dueDate#`, `prio#`…) is shown as a pill on the note. Types are read from the Sheet
 (dropdown, checkbox, date format) or guessed from the values: **dates** turn orange within 2 days and red when overdue,
 **priorities** (`high`/`medium`/`low`, `P1`…) are red/orange/green, links show their site name. Columns without `#` appear only

@@ -144,6 +144,8 @@ export interface Chip {
   value: string
   icon: string
   tone?: Tone
+  /** Background of the pill for a value of a dropdown list (set by the board, from the value's own color). */
+  color?: string
   /** Field label, for tooltips. */
   label: string
 }

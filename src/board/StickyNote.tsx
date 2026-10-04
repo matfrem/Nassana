@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { GRID, NOTE_SIZE } from '../constants'
 import type { BoardInfo } from '../types'
-import type { Chip } from '../fields'
+import { inkFor, type Chip } from '../fields'
 import type { Task } from '../types'
 import { pathFor } from './ink'
 
@@ -196,7 +196,7 @@ export function StickyNote({
               key={c.key}
               className={`chip${c.tone ? ` tone-${c.tone}` : ''}`}
               title={c.label}
-              style={tooling ? { pointerEvents: 'none' } : undefined}
+              style={{ ...(c.color ? { background: c.color, borderColor: c.color, color: inkFor(c.color) } : {}), ...(tooling ? { pointerEvents: 'none' as const } : {}) }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => onChip(c)}
             >

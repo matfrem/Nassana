@@ -1274,18 +1274,38 @@ export function BoardView({ source }: { source: Source }) {
     timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS)
   }
 
+  /** The color of each value of every dropdown column shown as a pill: the same rules as the legend. */
+  const pillColors = useMemo(() => {
+    const out = new Map<string, string>()
+    for (const f of shownFields.filter((x) => x.type === 'select')) {
+      const distinct = [...new Set(tasks.map((t) => rawOf(t.values?.[f.key] as Cell)).filter(Boolean))].sort()
+      for (const t of tasks) {
+        const chip = chipFor(f, t.values?.[f.key])
+        if (!chip || out.has(`${f.key}|${chip.raw}`)) continue
+        out.set(
+          `${f.key}|${chip.raw}`,
+          colorRules[`${f.key}|${chip.raw}`]?.color ?? f.colors?.[chip.raw] ?? (chip.tone ? TONE_COLORS[chip.tone] : NOTE_COLORS[distinct.indexOf(chip.raw) % NOTE_COLORS.length]),
+        )
+      }
+    }
+    return out
+  }, [shownFields, tasks, colorRules])
+
   const noteView = useCallback(
     (t: Task) => {
       const color = colorScheme ? (colorScheme.byRaw.get(rawOf(valueOf(t, colorScheme.field.key)))?.color ?? '#E5E7EB') : t.board.color
       return {
-        chips: shownFields.flatMap((f) => chipFor(f, t.values?.[f.key]) ?? []),
+        chips: shownFields.flatMap((f) => {
+          const c = chipFor(f, t.values?.[f.key])
+          return c ? [f.type === 'select' ? { ...c, color: pillColors.get(`${f.key}|${c.raw}`) } : c] : []
+        }),
         dim: filter ? rawOf(valueOf(t, filter.key)) !== filter.raw : false,
         hidden: hidden.some((h) => rawOf(valueOf(t, h.key)) === h.raw),
         color,
         ink: inkFor(color), // a dark fill from the Sheet needs light text
       }
     },
-    [shownFields, filter, colorScheme, hidden],
+    [shownFields, filter, colorScheme, hidden, pillColors],
   )
 
   hiddenRef.current = (t) => noteView(t).hidden

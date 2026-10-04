@@ -196,3 +196,16 @@ test('gives ids to rows that have none, on request', async ({ page }) => {
   await expect.poll(() => [sheet.cell('Tasks', 'B3'), sheet.cell('Tasks', 'B4')].every((v) => /^[0-9a-f]{8}$/.test(String(v)))).toBe(true)
   await expect(page.locator('.note')).toHaveCount(3)
 })
+
+test('pills of dropdown values take the color of their value (same as the legend)', async ({ page }) => {
+  const s = richSheet()
+  s.tabs._board = [['id', 'type', 'data'], ['c1', 'color', '{"key":"prio#","value":"low","color":"#123456"}']]
+  await openBoard(page, s)
+  const high = note(page, 'Ship it').locator('.chip').first()
+  const low = note(page, 'Write docs').locator('.chip').first()
+  await expect(low).toHaveCSS('background-color', 'rgb(18, 52, 86)') // a color picked in the app
+  await expect(low).toHaveCSS('color', 'rgb(245, 245, 245)') // light text, readable on it
+  await expect(high).toHaveCSS('background-color', 'rgb(255, 173, 173)') // a priority tone
+  const team = note(page, 'Ship it').locator('.chip').nth(5)
+  await expect(team).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)') // a list value always has a color
+})
