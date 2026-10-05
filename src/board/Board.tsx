@@ -8,6 +8,7 @@ import { Ink, type Clip } from './InkLayer'
 import { LinksLayer, type LinkItem, type LiveLink } from './LinksLayer'
 import { distToSeg, segmentBetween, segmentToPoint } from './links'
 import { StickyNote } from './StickyNote'
+import { closedCount } from '../closed'
 import { StampStack } from './StampStack'
 import { zoneOfNote } from './zones'
 import { ZoneView } from './ZoneView'
@@ -52,7 +53,7 @@ interface Props {
   onRename: (id: string, title: string) => void
   onRenameDone: () => void
   /** How a note looks: its pills, whether it is filtered out, and its color. */
-  noteView: (t: Task) => { chips: Chip[]; dim: boolean; hidden: boolean; color: string; ink: string }
+  noteView: (t: Task) => { chips: Chip[]; dim: boolean; hidden: boolean; /** Not drawn at all: closed, or left out by an isolation. */ gone: boolean; color: string; ink: string }
   onChip: (chip: Chip) => void
   /** Stacks of notes: which notes are tucked under another, how many sub-tasks each note has, which stacks are open. */
   stack: { tucked: Map<string, string>; kids: Map<string, string[]>; open: Set<string>; animating: boolean; onToggle: (id: string) => void; dropTarget: string | null }
@@ -203,7 +204,7 @@ export function Board({
   const tasksRef = useRef(tasks)
   tasksRef.current = tasks
   /** Notes that are not hidden: the only ones that can be drawn on, linked or hit. */
-  const visibleNotes = () => tasksRef.current.filter((t) => !noteViewRef.current(t).hidden)
+  const visibleNotes = () => tasksRef.current.filter((t) => !noteViewRef.current(t).hidden && !noteViewRef.current(t).gone)
 
   // A finger that lifts always stops counting, even if the element it was on is gone by then
   // (otherwise the board would think two fingers are still down and refuse to drag anything).
@@ -508,7 +509,7 @@ export function Board({
       const min = 8 / camRef.current.zoom
       if (finished && r && r.w >= min && r.h >= min) {
         const items: SelItem[] = []
-        const hidden = (t: Task) => noteViewRef.current(t).hidden || stack.tucked.has(t.id)
+        const hidden = (t: Task) => noteViewRef.current(t).hidden || noteViewRef.current(t).gone || stack.tucked.has(t.id)
         for (const t of tasks) {
           if (!hidden(t) && t.board.x < r.x + r.w && t.board.x + NOTE_SIZE > r.x && t.board.y < r.y + r.h && t.board.y + NOTE_SIZE > r.y) items.push({ kind: 'note', id: t.id })
         }
@@ -565,32 +566,35 @@ export function Board({
       const a = byId.get(link.from)
       const b = byId.get(link.to)
       const seg = a && b ? segmentBetween(a, b) : null
-      return a && b && seg && !stack.tucked.has(a.id) && !stack.tucked.has(b.id)
+      return a && b && seg && !stack.tucked.has(a.id) && !stack.tucked.has(b.id) && !noteView(a).gone && !noteView(b).gone
         ? [{ link, seg, dim: noteView(a).dim || noteView(b).dim || noteView(a).hidden || noteView(b).hidden }]
         : []
     })
     // Spread-open stacks: a dotted line from each parent to its sub-tasks (derived, never stored).
     for (const [parentId, kids] of stack.kids) {
       const a = byId.get(parentId)
-      if (!a || !stack.open.has(parentId) || stack.tucked.has(parentId)) continue
+      if (!a || !stack.open.has(parentId) || stack.tucked.has(parentId) || noteView(a).gone) continue
       for (const kid of kids) {
         const b = byId.get(kid)
         const seg = b ? segmentBetween(a, b) : null
-        if (!b || !seg || stack.tucked.has(kid)) continue
+        if (!b || !seg || stack.tucked.has(kid) || noteView(b).gone) continue
         explicit.push({ link: { id: `stack:${kid}`, from: parentId, to: kid, arrow: 'none' }, seg, dim: noteView(a).dim || noteView(b).dim || noteView(a).hidden || noteView(b).hidden })
       }
     }
     return explicit
   }, [links, showLinks, tasks, noteView, stack])
 
+  const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks])
+
   const counts = useMemo(() => {
     const m = new Map<string, number>()
     for (const t of tasks) {
+      if (noteView(t).gone) continue // closed or isolated out: not counted while it is not shown
       const z = zoneOfNote(zones, t)
       if (z) m.set(z.id, (m.get(z.id) ?? 0) + 1)
     }
     return m
-  }, [tasks, zones])
+  }, [tasks, zones, noteView])
 
   return (
     <div
@@ -654,7 +658,7 @@ export function Board({
           // The post-its peeking out from under a closed stack.
           const n = stack.kids.get(t.id)?.length ?? 0
           const v = noteView(t)
-          if (!n || v.hidden || stack.tucked.has(t.id)) return null
+          if (!n || v.hidden || v.gone || stack.tucked.has(t.id)) return null
           return (
             <div
               key={`cards-${t.id}`}
@@ -668,9 +672,11 @@ export function Board({
         })}
         {tasks.map((t) => {
           const v = noteView(t)
+          if (v.gone) return null
           const anchor = stack.tucked.get(t.id)
           const home = anchor ? tasks.find((n) => n.id === anchor)?.board : undefined
-          const kids = stack.kids.get(t.id)?.length ?? 0
+          const kidIds = stack.kids.get(t.id) ?? []
+          const kids = kidIds.length
           return (
           <StickyNote
             key={t.id}
@@ -678,6 +684,7 @@ export function Board({
             ghost={v.hidden}
             tuckedInto={home ?? null}
             subtasks={kids}
+            closedSubtasks={closedCount(kidIds, byId)}
             dropTarget={stack.dropTarget === t.id}
             stackOpen={stack.open.has(t.id)}
             gliding={stack.animating}
@@ -706,7 +713,7 @@ export function Board({
         })}
         {tasks.map((t) => {
           const v = noteView(t)
-          if (!showStamps || !t.stamps?.length || v.hidden || stack.tucked.has(t.id)) return null
+          if (!showStamps || !t.stamps?.length || v.hidden || v.gone || stack.tucked.has(t.id)) return null
           return <StampStack key={`stamps-${t.id}`} ids={t.stamps} x={t.board.x} y={t.board.y} dim={v.dim} />
         })}
         <Ink strokes={strokes} live={liveStroke} liveClip={liveClip} selected={new Set([...(tool === 'move' && selectedStroke && !selectedStroke.noteId ? [selectedStroke.id] : []), ...[...multiKeys].filter((k) => k.startsWith('s:')).map((k) => k.slice(2))])} />

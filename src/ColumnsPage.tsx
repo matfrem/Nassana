@@ -491,6 +491,7 @@ function Preview({ drafts, fields, icons }: { drafts: Draft[]; fields: Field[]; 
           selectedStrokeId={null}
           tuckedInto={null}
           subtasks={0}
+          closedSubtasks={0}
           dropTarget={false}
           stackOpen={false}
           onStack={() => {}}

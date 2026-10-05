@@ -42,6 +42,8 @@ interface Props {
   tuckedInto: BoardInfo | null
   /** Number of direct sub-tasks, whether their stack is open, and the toggle. */
   subtasks: number
+  /** How many of them are closed (the badge reads `closed/total` when there are some). */
+  closedSubtasks: number
   /** A dragged note has been held over this one: letting go makes it a sub-task. */
   dropTarget: boolean
   stackOpen: boolean
@@ -76,6 +78,7 @@ export function StickyNote({
   selectedStrokeId,
   tuckedInto,
   subtasks,
+  closedSubtasks,
   dropTarget,
   stackOpen,
   onStack,
@@ -208,14 +211,14 @@ export function StickyNote({
       )}
       {subtasks > 0 && !editing && (
         <button
-          className="stack-badge"
+          className={`stack-badge${closedSubtasks === subtasks ? ' done' : ''}`}
           aria-label={stackOpen ? `Tuck ${subtasks} sub-tasks` : `Show ${subtasks} sub-tasks`}
           aria-expanded={stackOpen}
           style={tooling ? { pointerEvents: 'none' } : undefined}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onStack(task.id)}
         >
-          {stackOpen ? '▾' : '▤'} {subtasks}
+          {stackOpen ? '▾' : '▤'} {closedSubtasks > 0 ? `${closedSubtasks}/${subtasks}` : subtasks}
         </button>
       )}
       {task.drawing && task.drawing.length > 0 && (

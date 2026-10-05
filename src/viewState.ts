@@ -1,4 +1,5 @@
 import type { Camera } from './types'
+import type { Isolation, MineRule } from './visibility'
 
 /** A value hidden from the board (or, for `OnlyRule`, the only one shown). `text`/`label` are for the pill. */
 export interface HideRule {
@@ -27,6 +28,12 @@ export interface ViewState {
   /** The board's background: the dots, a plain color, or nothing (the theme's color). */
   background: 'dots' | 'color' | 'empty'
   bgColor: string
+  /** Show the tasks whose status is closed (they are hidden by default). */
+  showClosed: boolean
+  /** "My tasks": the column and value that mean a task is mine (a personal setting, kept in this browser only). */
+  mine: MineRule | null
+  /** The isolation in force, if any. */
+  isolate: Isolation | null
 }
 
 export const DEFAULT_BG = '#e8eef7'
@@ -36,10 +43,15 @@ const KEY = (sheetId: string) => `nassana.view.${sheetId}`
 const isRule = (r: unknown): r is HideRule =>
   !!r && typeof r === 'object' && ['key', 'raw', 'text', 'label'].every((k) => typeof (r as Record<string, unknown>)[k] === 'string')
 
+const isIsolation = (i: unknown): i is Isolation => {
+  const o = i as { kind?: unknown; ids?: unknown } | null
+  return !!o && typeof o === 'object' && (o.kind === 'mine' || (o.kind === 'tasks' && Array.isArray(o.ids) && o.ids.every((x) => typeof x === 'string')))
+}
+
 const isCamera = (c: unknown): c is Camera =>
   !!c && typeof c === 'object' && ['x', 'y', 'zoom'].every((k) => Number.isFinite((c as Record<string, unknown>)[k]))
 
-const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true, showStamps: true, showChips: true, background: 'dots', bgColor: DEFAULT_BG })
+const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true, showStamps: true, showChips: true, background: 'dots', bgColor: DEFAULT_BG, showClosed: false, mine: null, isolate: null })
 
 function readJson(key: string): unknown {
   try {
@@ -63,6 +75,9 @@ export function loadView(sheetId: string | null): ViewState {
       showStamps: v.showStamps !== false,
       showChips: v.showChips !== false,
       background: v.background === 'color' || v.background === 'empty' ? v.background : 'dots',
+      showClosed: v.showClosed === true,
+      mine: isRule(v.mine) ? { key: v.mine.key, raw: v.mine.raw, text: v.mine.text, label: v.mine.label } : null,
+      isolate: isIsolation(v.isolate) ? v.isolate : null,
       bgColor: typeof v.bgColor === 'string' && /^#[0-9a-f]{6}$/i.test(v.bgColor) ? v.bgColor : DEFAULT_BG,
     }
   }

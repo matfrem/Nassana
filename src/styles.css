@@ -809,3 +809,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .cfg .cfg-preview .chip.tone-green { background: #2da44e; border-color: #2da44e; color: #fff; }
 .cfg .cfg-preview .stack-badge { display: none; }
 .selection-bar button.active { background: var(--accent) !important; border-color: var(--accent); color: #fff; }
+.stack-badge { border: 1px solid transparent; }
+.stack-badge.done { color: #4ade80; border-color: #4ade80; }
+.isolate-bar { bottom: 112px !important; }
+.cp .my-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin: 8px 0; } .cp .my-field select { font: inherit; padding: 6px 8px; }

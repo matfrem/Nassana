@@ -9,6 +9,9 @@ import { GRID, INK_COLORS, NOTE_COLORS, NOTE_SIZE, PEN_WIDTHS, ZONE_COLORS, ZONE
 import { demoTasks } from './data'
 import { selKey, type SelItem } from './board/Board'
 import { ColorPicker } from './ColorPicker'
+import { isClosed } from './closed'
+import { MySettings } from './MySettings'
+import { goneIds, isolatedSet, type Isolation, type MineRule } from './visibility'
 import { StampPicker } from './StampPicker'
 import { formatStamps, toggledStamps } from './stamps'
 import { byFrequency } from './colorUtil'
@@ -197,6 +200,19 @@ export function BoardView({ source }: { source: Source }) {
     [tasks],
   )
   const parentsRef = useRef(parents)
+
+  // ---- what is shown: closed tasks, isolation, "my tasks" ----
+  const [showClosed, setShowClosedState] = useState(savedView.showClosed)
+  /** "My tasks": the column and value that mean a task is mine (personal: kept in this browser only). */
+  const [mine, setMineState] = useState<MineRule | null>(savedView.mine)
+  const [isolation, setIsolationState] = useState<Isolation | null>(savedView.isolate)
+  const [mySettingsOpen, setMySettingsOpen] = useState(false)
+  const isMine = useCallback((t: Task) => !!mine && rawOf(valueOf(t, mine.key)) === mine.raw, [mine])
+  const isolated = useMemo(() => isolatedSet(tasks, parents, isolation, isMine, showClosed), [tasks, parents, isolation, isMine, showClosed])
+  /** The tasks that are not drawn at all. */
+  const goneSet = useMemo(() => goneIds(tasks, showClosed, isolated), [tasks, showClosed, isolated])
+  /** The tasks the legend, the counts and the colors are about: closed ones do not count while hidden. */
+  const listTasks = useMemo(() => (showClosed ? tasks : tasks.filter((t) => !isClosed(t))), [tasks, showClosed])
   parentsRef.current = parents
   const [openStacks, setOpenStacks] = useState<Set<string>>(() => new Set())
   const openRef = useRef(openStacks)
@@ -814,7 +830,10 @@ export function BoardView({ source }: { source: Source }) {
       title: 'New note',
       board: { x, y, color: NOTE_COLORS[0] },
       parent: parentId,
+      // while isolating "my tasks", a new note is mine (when the rule is about a column we can write)
+      values: isolation?.kind === 'mine' && mine && mine.key !== 'status' ? { [mine.key]: mine.text } : undefined,
     }
+    joinIsolation([task.id])
     setTasks((ts) => [...ts, task])
     setSelectedId(task.id)
     setEditingId(task.id)
@@ -851,6 +870,7 @@ export function BoardView({ source }: { source: Source }) {
       drawing: src.drawing?.map((s, i) => ({ ...s, id: `${id}-${i}`, p: [...s.p] })),
       stamps: src.stamps ? [...src.stamps] : undefined,
     }
+    joinIsolation([id])
     setTasks((ts) => [...ts, copy])
     setSelectedId(id)
     setDetailId(null)
@@ -977,7 +997,8 @@ export function BoardView({ source }: { source: Source }) {
 
   setParentRef.current = setParent
   const stackKids = useMemo(() => childrenOf(parents), [parents])
-  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, openStacks), [tasks, parents, openStacks])
+  // A task that is not drawn (closed, isolated out) does not keep its sub-tasks tucked away: they cannot open it.
+  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, new Set([...openStacks, ...goneSet])), [tasks, parents, openStacks, goneSet])
   tuckedRef.current = tuckedMap
 
   const deleteSelected = () => {
@@ -1262,7 +1283,7 @@ export function BoardView({ source }: { source: Source }) {
 
   /** `name (visible/total)` once some values of the column are hidden, so an active filter is visible in the menu. */
   const withCounts = (key: string, label: string) => {
-    const values = new Set(tasks.map((t) => rawOf(valueOf(t, key))).filter(Boolean))
+    const values = new Set(listTasks.map((t) => rawOf(valueOf(t, key))).filter(Boolean))
     const hiddenHere = hidden.filter((h) => h.key === key && values.has(h.raw)).length
     return hiddenHere > 0 ? `${label} (${values.size - hiddenHere}/${values.size})` : label
   }
@@ -1298,8 +1319,8 @@ export function BoardView({ source }: { source: Source }) {
     const f = colorBy === 'status' ? STATUS_FIELD : fields.find((x) => x.key === colorBy)
     if (!f) return null
     const seen = new Map<string, { raw: string; text: string; color: string }>()
-    const distinct = [...new Set(tasks.map((t) => rawOf(valueOf(t, f.key))).filter(Boolean))].sort()
-    for (const t of tasks) {
+    const distinct = [...new Set(listTasks.map((t) => rawOf(valueOf(t, f.key))).filter(Boolean))].sort()
+    for (const t of listTasks) {
       const v = valueOf(t, f.key)
       const raw = rawOf(v)
       if (!raw || seen.has(raw)) continue
@@ -1318,7 +1339,7 @@ export function BoardView({ source }: { source: Source }) {
       })
     }
     return { field: f, byRaw: seen }
-  }, [fields, colorBy, tasks, colorRules, zones])
+  }, [fields, colorBy, listTasks, colorRules, zones])
 
   /** Picks the color of one value of the "color by" column (Edit mode, from the legend). */
   const setValueColor = (key: string, raw: string, color: string) => {
@@ -1334,8 +1355,8 @@ export function BoardView({ source }: { source: Source }) {
   const pillColors = useMemo(() => {
     const out = new Map<string, string>()
     for (const f of fields.filter((x) => x.type === 'select')) {
-      const distinct = [...new Set(tasks.map((t) => rawOf(t.values?.[f.key] as Cell)).filter(Boolean))].sort()
-      for (const t of tasks) {
+      const distinct = [...new Set(listTasks.map((t) => rawOf(t.values?.[f.key] as Cell)).filter(Boolean))].sort()
+      for (const t of listTasks) {
         const chip = chipFor(f, t.values?.[f.key])
         if (!chip || out.has(`${f.key}|${chip.raw}`)) continue
         out.set(
@@ -1345,7 +1366,7 @@ export function BoardView({ source }: { source: Source }) {
       }
     }
     return out
-  }, [fields, tasks, colorRules])
+  }, [fields, listTasks, colorRules])
 
   const noteView = useCallback(
     (t: Task) => {
@@ -1357,14 +1378,15 @@ export function BoardView({ source }: { source: Source }) {
         }),
         dim: filter ? rawOf(valueOf(t, filter.key)) !== filter.raw : false,
         hidden: hidden.some((h) => rawOf(valueOf(t, h.key)) === h.raw),
+        gone: goneSet.has(t.id),
         color,
         ink: inkFor(color), // a dark fill from the Sheet needs light text
       }
     },
-    [shownFields, filter, colorScheme, hidden, pillColors, colIcons],
+    [shownFields, filter, colorScheme, hidden, pillColors, colIcons, goneSet],
   )
 
-  hiddenRef.current = (t) => noteView(t).hidden
+  hiddenRef.current = (t) => noteView(t).hidden || noteView(t).gone
   const saveHidden = (next: HideRule[]) => {
     setHidden(next)
     saveView(sheetId, { hidden: next })
@@ -1409,6 +1431,60 @@ export function BoardView({ source }: { source: Source }) {
     const next = tasksRef.current.map((t) => (set.has(t.id) ? { ...t, status: status || undefined, autoPlaced: true } : t))
     setTasks(applyZones(next, zonesRef.current))
     ids.forEach((id) => markDirty(id, 'status'))
+  }
+
+  // ---- closed tasks, isolation, my tasks ----
+  const setShowClosed = (on: boolean) => {
+    setShowClosedState(on)
+    saveView(sheetId, { showClosed: on })
+  }
+  const setIsolation = (iso: Isolation | null) => {
+    setIsolationState(iso)
+    saveView(sheetId, { isolate: iso })
+  }
+  /** A rule is complete once it has a value. Forgetting it also ends an isolation that was built on it. */
+  const setMine = (rule: MineRule | null) => {
+    setMineState(rule)
+    saveView(sheetId, { mine: rule })
+    if ((!rule || !rule.raw) && isolation?.kind === 'mine') setIsolation(null)
+  }
+  const mineReady = !!mine && !!mine.raw
+
+  /** The camera shows what an isolation keeps. */
+  const fitIsolated = (iso: Isolation) => {
+    const keep = isolatedSet(tasks, parents, iso, isMine, showClosed)
+    const shown = tasks.filter((t) => keep?.has(t.id) && (showClosed || !isClosed(t)))
+    if (!shown.length) return
+    setCamera(
+      fitRect(
+        Math.min(...shown.map((t) => t.board.x)),
+        Math.min(...shown.map((t) => t.board.y)),
+        Math.max(...shown.map((t) => t.board.x + NOTE_SIZE)),
+        Math.max(...shown.map((t) => t.board.y + NOTE_SIZE)),
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    )
+  }
+  const startIsolation = (iso: Isolation) => {
+    setIsolation(iso)
+    setMulti([])
+    setSelectedId(null)
+    setSelectedZoneId(null)
+    setDetailId(null)
+    setMultiDetail(false)
+    setViewMenu(false)
+    fitIsolated(iso)
+  }
+  /** The notes that are selected: the multi-selection's notes, or the single selected note. */
+  const selectedNoteIds = (): string[] => (multi.length ? multi.filter((i) => i.kind === 'note').map((i) => i.id) : selectedId ? [selectedId] : [])
+  const isolateSelected = () => {
+    const ids = selectedNoteIds()
+    if (ids.length) startIsolation({ kind: 'tasks', ids })
+  }
+  /** A note made while isolating (new, duplicated, pasted) joins the isolation, or it would vanish at once. */
+  const joinIsolation = (ids: string[]) => {
+    if (isolation?.kind === 'tasks') setIsolation({ kind: 'tasks', ids: [...isolation.ids, ...ids] })
   }
 
   // ---- multi-selection ----
@@ -1681,6 +1757,7 @@ export function BoardView({ source }: { source: Source }) {
     const newLinks: Link[] = linksRef.current
       .filter((l) => ids.has(l.from) && ids.has(l.to))
       .map((l) => ({ ...l, id: crypto.randomUUID().slice(0, 8), from: ids.get(l.from)!, to: ids.get(l.to)! }))
+    joinIsolation(copies.map((c) => c.id))
     setTasks((ts) => [...ts, ...copies])
     setLinks((ls) => [...ls, ...newLinks])
     applyMulti(copies.map((t) => ({ kind: 'note' as const, id: t.id })))
@@ -1743,7 +1820,7 @@ export function BoardView({ source }: { source: Source }) {
       pasteTasks(clipboard.current)
     } else if ((tool === 'none' || tool === 'select') && mod && key === 'a' && !editingId) {
       e.preventDefault()
-      applyMulti(tasksRef.current.filter((t) => !noteView(t).hidden && !tuckedRef.current.has(t.id)).map((t) => ({ kind: 'note' as const, id: t.id })))
+      applyMulti(tasksRef.current.filter((t) => !noteView(t).hidden && !noteView(t).gone && !tuckedRef.current.has(t.id)).map((t) => ({ kind: 'note' as const, id: t.id })))
     }
   }
   useEffect(() => {
@@ -1933,8 +2010,7 @@ export function BoardView({ source }: { source: Source }) {
             ⤳<span className="label"> Link</span>
           </button>
         )}
-        {editable && (
-          <span className="menu-anchor">
+        <span className="menu-anchor">
             <button
               className={tool === 'zone' || tool === 'select' ? 'primary' : ''}
               aria-label="More tools"
@@ -1949,6 +2025,8 @@ export function BoardView({ source }: { source: Source }) {
             {moreMenu && (
               <div className="menu">
                 <strong>More tools</strong>
+                {editable && (
+                  <>
                 <button
                   className={tool === 'zone' ? 'on' : ''}
                   onClick={() => {
@@ -1973,10 +2051,19 @@ export function BoardView({ source }: { source: Source }) {
                 >
                   ⬚ Select
                 </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    setMoreMenu(false)
+                    setMySettingsOpen(true)
+                  }}
+                >
+                  ⚙ My settings…
+                </button>
               </div>
             )}
           </span>
-        )}
         <span className="menu-anchor">
           <button aria-label="View options" title="View" onClick={() => {
               setViewMenu((v) => !v)
@@ -2010,6 +2097,20 @@ export function BoardView({ source }: { source: Source }) {
                 <input type="checkbox" checked={showChips} onChange={(e) => setShowChips(e.target.checked)} />
                 Show property chips
               </label>
+              <label className="menu-check">
+                <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
+                Show closed tasks
+              </label>
+              <button disabled={!editable || selectedNoteIds().length === 0} title={editable ? 'Select tasks first' : 'Selecting tasks needs Edit mode'} onClick={isolateSelected}>
+                ◎ Isolate selected tasks
+              </button>
+              <button
+                disabled={!mineReady}
+                title={mineReady ? undefined : 'Set which tasks are yours in ⋯ → My settings'}
+                onClick={() => mine && startIsolation({ kind: 'mine' })}
+              >
+                ◎ Isolate my tasks
+              </button>
               <button aria-expanded={bgOpen} onClick={() => setBgOpen((o) => !o)}>
                 {bgOpen ? '▾' : '▸'} Show background
               </button>
@@ -2097,6 +2198,36 @@ export function BoardView({ source }: { source: Source }) {
           </button>
         )}
       </div>
+
+      {isolation && (
+        <div className="selection-bar zone-bar isolate-bar">
+          <span>
+            {isolation.kind === 'mine' && mine
+              ? `Isolated: my tasks (${mine.label} = ${mine.text})`
+              : `Isolated: ${isolation.kind === 'tasks' ? isolation.ids.length : 0} task${isolation.kind === 'tasks' && isolation.ids.length === 1 ? '' : 's'}`}
+          </span>
+          <button onClick={() => setIsolation(null)}>Cancel isolate mode</button>
+        </div>
+      )}
+
+      {mySettingsOpen && (
+        <MySettings
+          columns={[{ key: 'status', label: 'Status' }, ...fields.map((f) => ({ key: f.key, label: f.label, icon: colIcons[f.key] }))]}
+          valuesFor={(key) => {
+            const seen = new Map<string, string>()
+            for (const t of tasks) {
+              const v = valueOf(t, key)
+              const raw = rawOf(v)
+              if (raw && !seen.has(raw)) seen.set(raw, String(v).trim())
+            }
+            for (const o of fields.find((f) => f.key === key)?.options ?? []) if (!seen.has(rawOf(o))) seen.set(rawOf(o), o)
+            return [...seen.entries()].map(([raw, text]) => ({ raw, text })).sort((a, b) => a.text.localeCompare(b.text))
+          }}
+          mine={mine}
+          onChange={setMine}
+          onClose={() => setMySettingsOpen(false)}
+        />
+      )}
 
       {editable && tool !== 'select' && multi.length > 0 && !editingId && (
         <div className="selection-bar">

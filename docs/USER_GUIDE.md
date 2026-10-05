@@ -56,6 +56,13 @@ in the details panel. `title` and `description` are fixed.
 
 Select a note (or several) and tap **★ Stamps**: a grid of 32 stamps opens (🔥 💣 ⭐ ✅ …). Tap a stamp to put it on the note, tap again to take it off; the grid stays open so you can stamp several, and **Close** ends it. A **double tap** on a stamp adds or removes it and closes the grid. With several notes selected, a stamp they all carry is removed from all, otherwise it is added to all. Stamps sit at the top right of the note, sticking out and stacked; after three, a new column starts to its left. A duplicate keeps its stamps; the stamps of a note tucked in a closed stack are not drawn. They are stored in a `stamps` column of `Tasks` (created when needed): the stamp ids separated by commas, e.g. `fire,bomb`.
 
+## Closed tasks, isolation and "my tasks"
+
+- **Closed tasks.** A task whose status is **Closed** (any case) is not drawn, and a zone does not count it. **View → Show closed tasks** brings them back (remembered per browser). Only the closed task itself disappears: its sub-tasks stay. The legend and the counts in the menus ignore hidden closed tasks. A stack's badge reads **closed/total** (`▤ 3/5`) as soon as one of its direct sub-tasks is closed, and turns green (text and border) when all of them are. The rule lives in one place (`src/closed.ts`, `isClosed`), so it can later become a column of its own.
+- **Isolate selected tasks** (**View**, Edit mode, with a selection): only the selected tasks and their sub-tasks (every level, as far as their stacks are open) stay on the board; everything else disappears, links to hidden tasks included. The camera fits what is left, a floating bar says **Isolated: N tasks** with **Cancel isolate mode**, and a note you create, duplicate or paste meanwhile joins the isolation. The mode is remembered per browser.
+- **My tasks.** **⋯ → ⚙ My settings…** (also in read-only mode) is where you choose a column (e.g. *Qui*) and one of its values (e.g. *Mathieu*): personal, kept in this browser only. **View → Isolate my tasks** is the same isolation mode with that rule: your tasks (an exact match on the value, case ignored), their sub-tasks, and the **parents** above them for context; closed tasks stay hidden unless shown. Notes you create meanwhile get your value in that column. Works in read-only mode too.
+- Isolating selected tasks and isolating "my tasks" are one mode with two rules: starting one replaces the other.
+
 ## Keyboard shortcuts (Edit mode, on a computer)
 
 | Keys | What |
