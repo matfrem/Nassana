@@ -11,7 +11,7 @@ import { selKey, type SelItem } from './board/Board'
 import { ColorPicker } from './ColorPicker'
 import { isClosed } from './closed'
 import { MySettings } from './MySettings'
-import { descendantsOf, goneIds, isolatedSet, type Isolation, type MineRule } from './visibility'
+import { descendantsOf, goneIds, isolatedSet, stackSet, type Isolation, type MineRule } from './visibility'
 import { StampPicker } from './StampPicker'
 import { formatStamps, toggledStamps } from './stamps'
 import { byFrequency } from './colorUtil'
@@ -208,10 +208,13 @@ export function BoardView({ source }: { source: Source }) {
   const [isolation, setIsolationState] = useState<Isolation | null>(savedView.isolate)
   const [mySettingsOpen, setMySettingsOpen] = useState(false)
   const [autoIsolate, setAutoIsolateState] = useState(savedView.autoIsolate)
+  /** The sub-task stacks opened by "auto isolate": a second isolation, applied on top of the first one. */
+  const [stackPath, setStackPathState] = useState<string[]>(savedView.stackPath)
   const isMine = useCallback((t: Task) => !!mine && rawOf(valueOf(t, mine.key)) === mine.raw, [mine])
   const isolated = useMemo(() => isolatedSet(tasks, parents, isolation, isMine, showClosed), [tasks, parents, isolation, isMine, showClosed])
   /** The tasks that are not drawn at all. */
-  const goneSet = useMemo(() => goneIds(tasks, showClosed, isolated), [tasks, showClosed, isolated])
+  const stackKept = useMemo(() => stackSet(tasks, parents, stackPath), [tasks, parents, stackPath])
+  const goneSet = useMemo(() => goneIds(tasks, showClosed, isolated, stackKept), [tasks, showClosed, isolated, stackKept])
   /** The tasks the legend, the counts and the colors are about: closed ones do not count while hidden. */
   const listTasks = useMemo(() => (showClosed ? tasks : tasks.filter((t) => !isClosed(t))), [tasks, showClosed])
   parentsRef.current = parents
@@ -971,11 +974,12 @@ export function BoardView({ source }: { source: Source }) {
   /** The opened stacks of an "auto isolate" session (empty: leave the mode). Nothing is written to the Sheet. */
   const setStackPath = (path: string[]) => {
     glide()
-    setIsolation(path.length ? { kind: 'stack', path } : null)
+    setStackPathState(path)
+    saveView(sheetId, { stackPath: path })
   }
   const toggleStack = (id: string) => {
-    if (isolation?.kind === 'stack') {
-      const path = isolation.path
+    if (stackPath.length) {
+      const path = stackPath
       const i = path.indexOf(id)
       if (i >= 0) return setStackPath(path.slice(0, i)) // closing a note leaves it, and everything opened after it
       const top = path[path.length - 1]
@@ -983,8 +987,8 @@ export function BoardView({ source }: { source: Source }) {
       if (descendantsOf(parentsRef.current, new Set([top])).has(id)) return setStackPath([...path, id]) // a sub-task: one level deeper
       return
     }
-    // "Auto isolate sub-tasks": opening a stack isolates it (only when no other isolation is on)
-    if (autoIsolate && !isolation && !openRef.current.has(id)) return setStackPath([id])
+    // "Auto isolate sub-tasks": opening a stack isolates it (on top of whatever isolation is already on)
+    if (autoIsolate && !openRef.current.has(id)) return setStackPath([id])
     setStackOpen(id, !openRef.current.has(id))
   }
 
@@ -1019,10 +1023,10 @@ export function BoardView({ source }: { source: Source }) {
 
   setParentRef.current = setParent
   // While a stack is isolated, only the stacks opened in that session are open: the shared open/closed state of the others is ignored.
-  const stackOpenForBoard = useMemo(() => new Set(isolation?.kind === 'stack' ? isolation.path : openStacks), [openStacks, isolation])
+  const stackOpenForBoard = useMemo(() => new Set(stackPath.length ? stackPath : openStacks), [openStacks, stackPath])
   const stackKids = useMemo(() => childrenOf(parents), [parents])
   // A task that is not drawn (closed, isolated out) does not keep its sub-tasks tucked away: they cannot open it.
-  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, new Set([...(isolation?.kind === 'stack' ? isolation.path : openStacks), ...goneSet])), [tasks, parents, openStacks, goneSet, isolation])
+  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, new Set([...(stackPath.length ? stackPath : openStacks), ...goneSet])), [tasks, parents, openStacks, goneSet, stackPath])
   tuckedRef.current = tuckedMap
 
   const deleteSelected = () => {
@@ -1847,8 +1851,8 @@ export function BoardView({ source }: { source: Source }) {
   }, [multi])
 
   useEffect(() => {
-    if (isolation?.kind === 'stack' && status.kind === 'ready' && !isolation.path.some((id) => tasks.some((t) => t.id === id))) setIsolation(null)
-  }, [isolation, tasks, status])
+    if (stackPath.length && status.kind === 'ready' && !stackPath.some((id) => tasks.some((t) => t.id === id))) setStackPath([])
+  }, [stackPath, tasks, status])
 
   // A tap anywhere outside an open menu closes it.
   useEffect(() => {
@@ -2215,16 +2219,19 @@ export function BoardView({ source }: { source: Source }) {
           <span>
             {isolation.kind === 'mine' && mine
               ? `Isolated: my tasks (${mine.label} = ${mine.text})`
-              : isolation.kind === 'stack'
-                ? `Isolated: “${tasks.find((t) => t.id === isolation.path[isolation.path.length - 1])?.title ?? ''}” and its sub-tasks`
-                : `Isolated: ${isolation.kind === 'tasks' ? isolation.ids.length : 0} task${isolation.kind === 'tasks' && isolation.ids.length === 1 ? '' : 's'}`}
+              : `Isolated: ${isolation.kind === 'tasks' ? isolation.ids.length : 0} task${isolation.kind === 'tasks' && isolation.ids.length === 1 ? '' : 's'}`}
           </span>
-          {isolation.kind === 'stack' && (
-            <button aria-label="Close up" onClick={() => setStackPath(isolation.path.slice(0, -1))}>
-              ↑ Close up
-            </button>
-          )}
           <button onClick={() => setIsolation(null)}>Cancel isolate mode</button>
+        </div>
+      )}
+
+      {stackPath.length > 0 && (
+        <div className={`selection-bar zone-bar isolate-bar stack-bar${isolation ? ' second' : ''}`}>
+          <span>{`Sub-tasks of “${tasks.find((t) => t.id === stackPath[stackPath.length - 1])?.title ?? ''}”`}</span>
+          <button aria-label="Close up" onClick={() => setStackPath(stackPath.slice(0, -1))}>
+            ↑ Close up
+          </button>
+          <button onClick={() => setStackPath([])}>Cancel sub-task isolation</button>
         </div>
       )}
 

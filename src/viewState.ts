@@ -34,6 +34,8 @@ export interface ViewState {
   mine: MineRule | null
   /** The isolation in force, if any. */
   isolate: Isolation | null
+  /** The sub-task stacks opened by "auto isolate", outermost first (a second isolation, on top of `isolate`). */
+  stackPath: string[]
   /** Opening a sub-task stack isolates it (a personal setting; on by default). */
   autoIsolate: boolean
 }
@@ -47,13 +49,19 @@ const isRule = (r: unknown): r is HideRule =>
 
 const isIsolation = (i: unknown): i is Isolation => {
   const o = i as { kind?: unknown; ids?: unknown } | null
-  return !!o && typeof o === 'object' && (o.kind === 'mine' || (o.kind === 'stack' && Array.isArray((o as { path?: unknown }).path) && ((o as { path: unknown[] }).path).every((x) => typeof x === 'string')) || (o.kind === 'tasks' && Array.isArray(o.ids) && o.ids.every((x) => typeof x === 'string')))
+  return !!o && typeof o === 'object' && (o.kind === 'mine' || (o.kind === 'tasks' && Array.isArray(o.ids) && o.ids.every((x) => typeof x === 'string')))
+}
+
+/** Older versions kept the opened stacks inside `isolate`. */
+const legacyStack = (i: unknown): string[] => {
+  const o = i as { kind?: unknown; path?: unknown } | null
+  return o && o.kind === 'stack' && Array.isArray(o.path) && o.path.every((x) => typeof x === 'string') ? (o.path as string[]) : []
 }
 
 const isCamera = (c: unknown): c is Camera =>
   !!c && typeof c === 'object' && ['x', 'y', 'zoom'].every((k) => Number.isFinite((c as Record<string, unknown>)[k]))
 
-const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true, showStamps: true, showChips: true, background: 'dots', bgColor: DEFAULT_BG, showClosed: false, mine: null, isolate: null, autoIsolate: true })
+const empty = (): ViewState => ({ colorBy: '', hidden: [], only: null, camera: null, showLinks: true, showStamps: true, showChips: true, background: 'dots', bgColor: DEFAULT_BG, showClosed: false, mine: null, isolate: null, stackPath: [], autoIsolate: true })
 
 function readJson(key: string): unknown {
   try {
@@ -80,6 +88,7 @@ export function loadView(sheetId: string | null): ViewState {
       showClosed: v.showClosed === true,
       mine: isRule(v.mine) ? { key: v.mine.key, raw: v.mine.raw, text: v.mine.text, label: v.mine.label } : null,
       isolate: isIsolation(v.isolate) ? v.isolate : null,
+      stackPath: Array.isArray(v.stackPath) && v.stackPath.every((x) => typeof x === 'string') ? v.stackPath : legacyStack(v.isolate),
       autoIsolate: v.autoIsolate !== false,
       bgColor: typeof v.bgColor === 'string' && /^#[0-9a-f]{6}$/i.test(v.bgColor) ? v.bgColor : DEFAULT_BG,
     }

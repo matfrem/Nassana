@@ -813,3 +813,4 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .stack-badge.done { color: #4ade80; border-color: #4ade80; }
 .isolate-bar { bottom: 112px !important; }
 .cp .my-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin: 8px 0; } .cp .my-field select { font: inherit; padding: 6px 8px; }
+.isolate-bar.stack-bar.second { bottom: 168px !important; }

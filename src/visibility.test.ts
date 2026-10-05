@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Task } from './types'
-import { ancestorsOf, descendantsOf, goneIds, isolatedSet } from './visibility'
+import { ancestorsOf, descendantsOf, goneIds, isolatedSet, stackSet } from './visibility'
 import { closedCount, isClosed } from './closed'
 
 const t = (id: string, status = '', who = ''): Task => ({ id, title: id, status: status || undefined, values: who ? { qui: who } : {}, board: { x: 0, y: 0, color: '#fff' } })
@@ -40,13 +40,22 @@ describe('isolation', () => {
     expect([...isolatedSet(list, parents, { kind: 'mine' }, mine, true)!].sort()).toEqual(['a', 'b', 'c', 'd'])
   })
   it('an opened stack shows its note, its sub-tasks at every level and the parent above', () => {
-    const s = isolatedSet(tasks, parents, { kind: 'stack', path: ['a'] }, () => false, false)!
+    const s = stackSet(tasks, parents, ['a'])!
     expect([...s].sort()).toEqual(['a', 'b', 'c', 'd'])
-    const deeper = isolatedSet(tasks, parents, { kind: 'stack', path: ['a', 'b'] }, () => false, false)!
+    const deeper = stackSet(tasks, parents, ['a', 'b'])!
     expect([...deeper].sort()).toEqual(['a', 'b', 'c']) // b, its sub-task c, and a above
-    const deepest = isolatedSet(tasks, parents, { kind: 'stack', path: ['a', 'b', 'c'] }, () => false, false)!
+    const deepest = stackSet(tasks, parents, ['a', 'b', 'c'])!
     expect([...deepest].sort()).toEqual(['b', 'c']) // c and its parent b
-    expect(isolatedSet(tasks, parents, { kind: 'stack', path: ['gone'] }, () => false, false)!.size).toBe(0)
+    expect(stackSet(tasks, parents, ['gone'])!.size).toBe(0)
+    expect(stackSet(tasks, parents, [])).toBeNull()
+  })
+  it('isolations are successive: a task must pass every one that is on', () => {
+    const list = [t('a'), t('b'), t('c'), t('d'), t('e')]
+    const mine = new Set(['a', 'b', 'c', 'e']) // say "my tasks" kept these
+    const stack = stackSet(list, parents, ['a'])! // a, b, c, d
+    expect([...goneIds(list, false, mine, stack)].sort()).toEqual(['d', 'e'])
+    expect([...goneIds(list, false, mine, null)].sort()).toEqual(['d'])
+    expect([...goneIds(list, false, null, stack)].sort()).toEqual(['e'])
   })
   it('no isolation: nothing is left out, except closed tasks', () => {
     const list = [t('a'), t('b', 'Closed')]

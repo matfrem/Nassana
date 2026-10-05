@@ -3,11 +3,7 @@ import type { Parents } from './board/stacks'
 import type { Task } from './types'
 
 /** Isolation: only some tasks stay on the board. `tasks`: a fixed list picked by the user; `mine`: the tasks that match "my" filter. */
-export type Isolation =
-  | { kind: 'tasks'; ids: string[] }
-  | { kind: 'mine' }
-  /** Opened sub-task stacks, outermost first: only the last one, its sub-tasks and its parent are shown. */
-  | { kind: 'stack'; path: string[] }
+export type Isolation = { kind: 'tasks'; ids: string[] } | { kind: 'mine' }
 
 /** "My tasks": a column and the value that means the task is mine (compared exactly, ignoring case). */
 export interface MineRule {
@@ -55,13 +51,6 @@ export function isolatedSet(
 ): Set<string> | null {
   if (!isolation) return null
   const exists = new Set(tasks.map((t) => t.id))
-  if (isolation.kind === 'stack') {
-    const top = [...isolation.path].reverse().find((id) => exists.has(id))
-    if (!top) return new Set()
-    const out = new Set([top, ...descendantsOf(parents, new Set([top]))])
-    if (parents[top]) out.add(parents[top]) // the note it hangs from, for context
-    return out
-  }
   const base = new Set(
     isolation.kind === 'tasks' ? isolation.ids.filter((id) => exists.has(id)) : tasks.filter((t) => isMine(t) && (showClosed || !isClosed(t))).map((t) => t.id),
   )
@@ -70,7 +59,24 @@ export function isolatedSet(
   return out
 }
 
-/** The tasks that are not drawn at all: closed ones (unless shown), and the ones left out by an isolation. */
-export function goneIds(tasks: Task[], showClosed: boolean, isolated: ReadonlySet<string> | null): Set<string> {
-  return new Set(tasks.filter((t) => (!showClosed && isClosed(t)) || (isolated !== null && !isolated.has(t.id))).map((t) => t.id))
+/**
+ * The sub-task isolation: the opened stacks (outermost first) narrow the view to the last one, its sub-tasks at every level and the
+ * note it hangs from. Null when no stack is opened.
+ */
+export function stackSet(tasks: Task[], parents: Parents, path: string[]): Set<string> | null {
+  if (!path.length) return null
+  const exists = new Set(tasks.map((t) => t.id))
+  const top = [...path].reverse().find((id) => exists.has(id))
+  if (!top) return new Set()
+  const out = new Set([top, ...descendantsOf(parents, new Set([top]))])
+  if (parents[top]) out.add(parents[top]) // the note it hangs from, for context
+  return out
+}
+
+/**
+ * The tasks that are not drawn at all: closed ones (unless shown), and the ones left out by any isolation. Isolations are successive:
+ * a task must be kept by every one that is on.
+ */
+export function goneIds(tasks: Task[], showClosed: boolean, ...kept: (ReadonlySet<string> | null)[]): Set<string> {
+  return new Set(tasks.filter((t) => (!showClosed && isClosed(t)) || kept.some((k) => k !== null && !k.has(t.id))).map((t) => t.id))
 }

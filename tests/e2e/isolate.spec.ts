@@ -157,14 +157,14 @@ test('opening a stack isolates it, deeper stacks narrow it down, closing a note 
 
   await badge(page, 'Root').click() // auto isolate: Root and what hangs below it
   expect(await titles(page)).toEqual(['A', 'Root'])
-  await expect(page.locator('.isolate-bar')).toContainText('Root')
+  await expect(page.locator('.stack-bar')).toContainText('Root')
   expect(await worldTransform(page)).toBe(cam) // not recentered
 
   await badge(page, 'A').click() // A's stack: A, its sub-tasks and its parent Root
   expect(await titles(page)).toEqual(['A', 'A1', 'Root'])
   await badge(page, 'A1').click() // A1's stack: A1, A1a, A1b and A above
   expect(await titles(page)).toEqual(['A', 'A1', 'A1a', 'A1b'])
-  await expect(page.locator('.isolate-bar')).toContainText('A1')
+  await expect(page.locator('.stack-bar')).toContainText('A1')
   expect(s.rows('_board').filter((r) => r[1] === 'open')).toHaveLength(0) // a local, temporary view
 
   await page.getByRole('button', { name: 'Close up' }).click() // one level up
@@ -172,16 +172,16 @@ test('opening a stack isolates it, deeper stacks narrow it down, closing a note 
   await badge(page, 'A').click() // closing A closes what was opened after it, too
   expect(await titles(page)).toEqual(['A', 'Root'])
   await badge(page, 'Root').click() // closing the first one leaves the mode
-  await expect(page.locator('.isolate-bar')).toHaveCount(0)
+  await expect(page.locator('.stack-bar')).toHaveCount(0)
   expect(await titles(page)).toEqual(['Other', 'Root'])
   expect(await worldTransform(page)).toBe(cam)
 })
 
-test('Cancel isolate mode leaves an auto isolation at once; "Auto isolate sub-tasks" can be turned off in My settings', async ({ page }) => {
+test('Cancel sub-task isolation leaves it at once; "Auto isolate sub-tasks" can be turned off in My settings', async ({ page }) => {
   await openBoard(page, tree())
   await badge(page, 'Root').click()
   await badge(page, 'A').click()
-  await page.getByRole('button', { name: 'Cancel isolate mode' }).click()
+  await page.getByRole('button', { name: 'Cancel sub-task isolation' }).click()
   expect(await titles(page)).toEqual(['Other', 'Root'])
 
   await page.getByRole('button', { name: 'More tools' }).click()
@@ -191,7 +191,7 @@ test('Cancel isolate mode leaves an auto isolation at once; "Auto isolate sub-ta
   await box.uncheck()
   await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
   await badge(page, 'Root').click() // now a plain stack: it spreads open, nothing else disappears
-  await expect(page.locator('.isolate-bar')).toHaveCount(0)
+  await expect(page.locator('.stack-bar')).toHaveCount(0)
   expect(await titles(page)).toEqual(['A', 'Other', 'Root'])
   await page.reload()
   await page.locator('.note').first().waitFor()
@@ -223,4 +223,38 @@ test('inside an auto isolation every stack starts closed, whatever its shared op
   expect(await titles(page)).toEqual(['A', 'A1', 'A1a', 'A1b'])
   await badge(page, 'A1').click() // and it closes again
   expect(await titles(page)).toEqual(['A', 'A1', 'Root'])
+})
+
+test('"Isolate my tasks" and the sub-task isolation are two successive isolations, each with its own bar and cancel', async ({ page }) => {
+  const s = new FakeSheet({
+    Tasks: [
+      ['id', 'title', 'board', 'parent', 'qui'],
+      ['r', 'Root', board(-500, -200), '', 'Mathieu'],
+      ['a', 'A', board(-250, -200), 'r', 'Mathieu'],
+      ['b', 'B', board(0, -200), 'r', 'Paul'], // a sub-task of Root, but not Mathieu's... it is below a task of mine, so it stays in "my tasks"
+      ['q', 'Quiet', board(-500, 100), '', 'Paul'],
+      ['m', 'Mine2', board(-250, 100), '', 'Mathieu'],
+    ],
+  })
+  await openBoard(page, s)
+  await page.getByRole('button', { name: 'More tools' }).click()
+  await page.getByRole('button', { name: /My settings/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'My settings' })
+  await dialog.getByLabel('My column').selectOption({ label: 'qui' })
+  await dialog.getByLabel('My value').selectOption({ label: 'Mathieu' })
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await viewMenu(page)
+  await page.getByRole('button', { name: /Isolate my tasks/ }).click()
+  expect(await titles(page)).toEqual(['Mine2', 'Root'])
+
+  await badge(page, 'Root').click() // the second isolation, on top of the first
+  expect(await titles(page)).toEqual(['A', 'B', 'Root'])
+  await expect(page.locator('.isolate-bar:not(.stack-bar)')).toContainText('my tasks')
+  await expect(page.locator('.stack-bar')).toContainText('Root')
+
+  await page.getByRole('button', { name: 'Cancel sub-task isolation' }).click() // only that one ends
+  expect(await titles(page)).toEqual(['Mine2', 'Root'])
+  await expect(page.locator('.isolate-bar')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Cancel isolate mode' }).click()
+  expect(await titles(page)).toEqual(['Mine2', 'Quiet', 'Root']) // everything again (A and B are tucked in Root)
 })
