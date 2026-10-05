@@ -16,7 +16,7 @@ const sheet = () =>
     _board: [['id', 'type', 'data'], ['open:a', 'open', '1'], ['open:b', 'open', '1']],
   })
 
-const titles = (page: Page) => page.locator('.note .note-title').allTextContents().then((t) => t.sort())
+const titles = (page: Page) => page.locator('.note:not(.tucked) .note-title').allTextContents().then((t) => t.sort())
 const viewMenu = async (page: Page) => page.getByRole('button', { name: 'View options' }).click()
 const corner = async (page: Page, title: string) => {
   const c = await noteCenter(page, title)
@@ -131,4 +131,82 @@ test('My settings + Isolate my tasks: mine, their sub-tasks and the parents abov
   expect(await titles(page)).toEqual(['Alpha', 'Beta', 'Delta', 'Gamma'])
   await page.getByRole('button', { name: 'Cancel isolate mode' }).click()
   expect((await titles(page)).length).toBe(6)
+})
+
+const tree = () =>
+  new FakeSheet({
+    Tasks: [
+      ['id', 'title', 'board', 'parent'],
+      ['r', 'Root', board(-500, -200), ''],
+      ['a', 'A', board(-250, -200), 'r'],
+      ['a1', 'A1', board(0, -200), 'a'],
+      ['x', 'A1a', board(250, -200), 'a1'],
+      ['y', 'A1b', board(250, 100), 'a1'],
+      ['o', 'Other', board(-500, 100), ''],
+      ['p', 'Other2', board(-250, 100), 'o'],
+    ],
+  })
+const badge = (page: Page, title: string) => note(page, title).locator('.stack-badge')
+const worldTransform = (page: Page) => page.locator('.world').evaluate((e) => (e as HTMLElement).style.transform)
+
+test('opening a stack isolates it, deeper stacks narrow it down, closing a note leaves it; nothing is written to the Sheet; the camera stays', async ({ page }) => {
+  const s = tree()
+  await openBoard(page, s)
+  expect(await titles(page)).toEqual(['Other', 'Root']) // both stacks closed
+  const cam = await worldTransform(page)
+
+  await badge(page, 'Root').click() // auto isolate: Root and what hangs below it
+  expect(await titles(page)).toEqual(['A', 'Root'])
+  await expect(page.locator('.isolate-bar')).toContainText('Root')
+  expect(await worldTransform(page)).toBe(cam) // not recentered
+
+  await badge(page, 'A').click() // A's stack: A, its sub-tasks and its parent Root
+  expect(await titles(page)).toEqual(['A', 'A1', 'Root'])
+  await badge(page, 'A1').click() // A1's stack: A1, A1a, A1b and A above
+  expect(await titles(page)).toEqual(['A', 'A1', 'A1a', 'A1b'])
+  await expect(page.locator('.isolate-bar')).toContainText('A1')
+  expect(s.rows('_board').filter((r) => r[1] === 'open')).toHaveLength(0) // a local, temporary view
+
+  await page.getByRole('button', { name: 'Close up' }).click() // one level up
+  expect(await titles(page)).toEqual(['A', 'A1', 'Root'])
+  await badge(page, 'A').click() // closing A closes what was opened after it, too
+  expect(await titles(page)).toEqual(['A', 'Root'])
+  await badge(page, 'Root').click() // closing the first one leaves the mode
+  await expect(page.locator('.isolate-bar')).toHaveCount(0)
+  expect(await titles(page)).toEqual(['Other', 'Root'])
+  expect(await worldTransform(page)).toBe(cam)
+})
+
+test('Cancel isolate mode leaves an auto isolation at once; "Auto isolate sub-tasks" can be turned off in My settings', async ({ page }) => {
+  await openBoard(page, tree())
+  await badge(page, 'Root').click()
+  await badge(page, 'A').click()
+  await page.getByRole('button', { name: 'Cancel isolate mode' }).click()
+  expect(await titles(page)).toEqual(['Other', 'Root'])
+
+  await page.getByRole('button', { name: 'More tools' }).click()
+  await page.getByRole('button', { name: /My settings/ }).click()
+  const box = page.getByLabel('Auto isolate sub-tasks')
+  await expect(box).toBeChecked() // on by default
+  await box.uncheck()
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
+  await badge(page, 'Root').click() // now a plain stack: it spreads open, nothing else disappears
+  await expect(page.locator('.isolate-bar')).toHaveCount(0)
+  expect(await titles(page)).toEqual(['A', 'Other', 'Root'])
+  await page.reload()
+  await page.locator('.note').first().waitFor()
+  await page.getByRole('button', { name: 'More tools' }).click()
+  await page.getByRole('button', { name: /My settings/ }).click()
+  await expect(page.getByLabel('Auto isolate sub-tasks')).not.toBeChecked() // remembered
+})
+
+test('isolating selected tasks or my tasks no longer moves the camera', async ({ page }) => {
+  await openBoard(page, sheet())
+  await startEditing(page)
+  const cam = await worldTransform(page)
+  const a = await corner(page, 'Alpha')
+  await page.mouse.click(a.x, a.y)
+  await viewMenu(page)
+  await page.getByRole('button', { name: /Isolate selected tasks/ }).click()
+  expect(await worldTransform(page)).toBe(cam)
 })

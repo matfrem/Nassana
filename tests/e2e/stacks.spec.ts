@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test'
 import { FakeSheet } from './fakeSheet'
 import { board, drag, note, noteCenter, openBoard, startEditing } from './helpers'
+import { SHEET_ID } from './fakeSheet'
+
+// these tests are about the plain stacks: "auto isolate sub-tasks" (a setting, on by default) is off
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript((id) => localStorage.setItem(`nassana.view.${id}`, JSON.stringify({ autoIsolate: false })), SHEET_ID)
+})
 
 const sheet = (extra: string[][] = []) =>
   new FakeSheet({

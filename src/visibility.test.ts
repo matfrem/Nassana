@@ -39,6 +39,15 @@ describe('isolation', () => {
     expect([...s].sort()).toEqual(['a', 'b', 'c']) // c, and its parents b and a; d is closed
     expect([...isolatedSet(list, parents, { kind: 'mine' }, mine, true)!].sort()).toEqual(['a', 'b', 'c', 'd'])
   })
+  it('an opened stack shows its note, its sub-tasks at every level and the parent above', () => {
+    const s = isolatedSet(tasks, parents, { kind: 'stack', path: ['a'] }, () => false, false)!
+    expect([...s].sort()).toEqual(['a', 'b', 'c', 'd'])
+    const deeper = isolatedSet(tasks, parents, { kind: 'stack', path: ['a', 'b'] }, () => false, false)!
+    expect([...deeper].sort()).toEqual(['a', 'b', 'c']) // b, its sub-task c, and a above
+    const deepest = isolatedSet(tasks, parents, { kind: 'stack', path: ['a', 'b', 'c'] }, () => false, false)!
+    expect([...deepest].sort()).toEqual(['b', 'c']) // c and its parent b
+    expect(isolatedSet(tasks, parents, { kind: 'stack', path: ['gone'] }, () => false, false)!.size).toBe(0)
+  })
   it('no isolation: nothing is left out, except closed tasks', () => {
     const list = [t('a'), t('b', 'Closed')]
     expect([...goneIds(list, false, null)]).toEqual(['b'])

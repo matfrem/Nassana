@@ -3,7 +3,11 @@ import type { Parents } from './board/stacks'
 import type { Task } from './types'
 
 /** Isolation: only some tasks stay on the board. `tasks`: a fixed list picked by the user; `mine`: the tasks that match "my" filter. */
-export type Isolation = { kind: 'tasks'; ids: string[] } | { kind: 'mine' }
+export type Isolation =
+  | { kind: 'tasks'; ids: string[] }
+  | { kind: 'mine' }
+  /** Opened sub-task stacks, outermost first: only the last one, its sub-tasks and its parent are shown. */
+  | { kind: 'stack'; path: string[] }
 
 /** "My tasks": a column and the value that means the task is mine (compared exactly, ignoring case). */
 export interface MineRule {
@@ -51,6 +55,13 @@ export function isolatedSet(
 ): Set<string> | null {
   if (!isolation) return null
   const exists = new Set(tasks.map((t) => t.id))
+  if (isolation.kind === 'stack') {
+    const top = [...isolation.path].reverse().find((id) => exists.has(id))
+    if (!top) return new Set()
+    const out = new Set([top, ...descendantsOf(parents, new Set([top]))])
+    if (parents[top]) out.add(parents[top]) // the note it hangs from, for context
+    return out
+  }
   const base = new Set(
     isolation.kind === 'tasks' ? isolation.ids.filter((id) => exists.has(id)) : tasks.filter((t) => isMine(t) && (showClosed || !isClosed(t))).map((t) => t.id),
   )

@@ -11,7 +11,7 @@ import { selKey, type SelItem } from './board/Board'
 import { ColorPicker } from './ColorPicker'
 import { isClosed } from './closed'
 import { MySettings } from './MySettings'
-import { goneIds, isolatedSet, type Isolation, type MineRule } from './visibility'
+import { descendantsOf, goneIds, isolatedSet, type Isolation, type MineRule } from './visibility'
 import { StampPicker } from './StampPicker'
 import { formatStamps, toggledStamps } from './stamps'
 import { byFrequency } from './colorUtil'
@@ -207,6 +207,7 @@ export function BoardView({ source }: { source: Source }) {
   const [mine, setMineState] = useState<MineRule | null>(savedView.mine)
   const [isolation, setIsolationState] = useState<Isolation | null>(savedView.isolate)
   const [mySettingsOpen, setMySettingsOpen] = useState(false)
+  const [autoIsolate, setAutoIsolateState] = useState(savedView.autoIsolate)
   const isMine = useCallback((t: Task) => !!mine && rawOf(valueOf(t, mine.key)) === mine.raw, [mine])
   const isolated = useMemo(() => isolatedSet(tasks, parents, isolation, isMine, showClosed), [tasks, parents, isolation, isMine, showClosed])
   /** The tasks that are not drawn at all. */
@@ -943,10 +944,13 @@ export function BoardView({ source }: { source: Source }) {
   }
 
   /** Spread a stack open or tuck it away, with a short animation. Shared through the Sheet in Edit mode. */
-  const setStackOpen = (id: string, open: boolean) => {
+  const glide = () => {
     clearTimeout(stackTimer.current)
     setStackAnim(true)
     stackTimer.current = setTimeout(() => setStackAnim(false), 450)
+  }
+  const setStackOpen = (id: string, open: boolean) => {
+    glide()
     setOpenStacks((o) => {
       const next = new Set(o)
       if (open) next.add(id)
@@ -964,7 +968,25 @@ export function BoardView({ source }: { source: Source }) {
       }
     })
   }
-  const toggleStack = (id: string) => setStackOpen(id, !openRef.current.has(id))
+  /** The opened stacks of an "auto isolate" session (empty: leave the mode). Nothing is written to the Sheet. */
+  const setStackPath = (path: string[]) => {
+    glide()
+    setIsolation(path.length ? { kind: 'stack', path } : null)
+  }
+  const toggleStack = (id: string) => {
+    if (isolation?.kind === 'stack') {
+      const path = isolation.path
+      const i = path.indexOf(id)
+      if (i >= 0) return setStackPath(path.slice(0, i)) // closing a note leaves it, and everything opened after it
+      const top = path[path.length - 1]
+      if (id === parentsRef.current[top]) return setStackPath([id]) // the parent shown for context
+      if (descendantsOf(parentsRef.current, new Set([top])).has(id)) return setStackPath([...path, id]) // a sub-task: one level deeper
+      return
+    }
+    // "Auto isolate sub-tasks": opening a stack isolates it (only when no other isolation is on)
+    if (autoIsolate && !isolation && !openRef.current.has(id)) return setStackPath([id])
+    setStackOpen(id, !openRef.current.has(id))
+  }
 
   /** Make `parent` the parent of the notes (null: detach them). The stack spreads open and each note steps out next to its parent. */
   const setParentMany = (childIds: string[], parent: string | null) => {
@@ -996,9 +1018,10 @@ export function BoardView({ source }: { source: Source }) {
   const setParent = (child: string, parent: string | null) => setParentMany([child], parent)
 
   setParentRef.current = setParent
+  const stackOpenForBoard = useMemo(() => new Set([...openStacks, ...(isolation?.kind === 'stack' ? isolation.path : [])]), [openStacks, isolation])
   const stackKids = useMemo(() => childrenOf(parents), [parents])
   // A task that is not drawn (closed, isolated out) does not keep its sub-tasks tucked away: they cannot open it.
-  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, new Set([...openStacks, ...goneSet])), [tasks, parents, openStacks, goneSet])
+  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, new Set([...openStacks, ...goneSet, ...(isolation?.kind === 'stack' ? isolation.path : [])])), [tasks, parents, openStacks, goneSet, isolation])
   tuckedRef.current = tuckedMap
 
   const deleteSelected = () => {
@@ -1450,22 +1473,6 @@ export function BoardView({ source }: { source: Source }) {
   }
   const mineReady = !!mine && !!mine.raw
 
-  /** The camera shows what an isolation keeps. */
-  const fitIsolated = (iso: Isolation) => {
-    const keep = isolatedSet(tasks, parents, iso, isMine, showClosed)
-    const shown = tasks.filter((t) => keep?.has(t.id) && (showClosed || !isClosed(t)))
-    if (!shown.length) return
-    setCamera(
-      fitRect(
-        Math.min(...shown.map((t) => t.board.x)),
-        Math.min(...shown.map((t) => t.board.y)),
-        Math.max(...shown.map((t) => t.board.x + NOTE_SIZE)),
-        Math.max(...shown.map((t) => t.board.y + NOTE_SIZE)),
-        window.innerWidth,
-        window.innerHeight,
-      ),
-    )
-  }
   const startIsolation = (iso: Isolation) => {
     setIsolation(iso)
     setMulti([])
@@ -1473,8 +1480,7 @@ export function BoardView({ source }: { source: Source }) {
     setSelectedZoneId(null)
     setDetailId(null)
     setMultiDetail(false)
-    setViewMenu(false)
-    fitIsolated(iso)
+    setViewMenu(false) // (the camera is left alone: the view is the user's to change)
   }
   /** The notes that are selected: the multi-selection's notes, or the single selected note. */
   const selectedNoteIds = (): string[] => (multi.length ? multi.filter((i) => i.kind === 'note').map((i) => i.id) : selectedId ? [selectedId] : [])
@@ -1839,6 +1845,10 @@ export function BoardView({ source }: { source: Source }) {
     }
   }, [multi])
 
+  useEffect(() => {
+    if (isolation?.kind === 'stack' && status.kind === 'ready' && !isolation.path.some((id) => tasks.some((t) => t.id === id))) setIsolation(null)
+  }, [isolation, tasks, status])
+
   // A tap anywhere outside an open menu closes it.
   useEffect(() => {
     if (!viewMenu && !moreMenu && !filterMenu) return
@@ -1892,7 +1902,7 @@ export function BoardView({ source }: { source: Source }) {
           }
         }}
         noteView={noteView}
-        stack={{ tucked: tuckedMap, kids: stackKids, open: openStacks, animating: stackAnim, onToggle: toggleStack, dropTarget }}
+        stack={{ tucked: tuckedMap, kids: stackKids, open: stackOpenForBoard, animating: stackAnim, onToggle: toggleStack, dropTarget }}
         onChip={onChip}
         onNoteOpen={(id) => {
           setDetailId(id)
@@ -2204,8 +2214,15 @@ export function BoardView({ source }: { source: Source }) {
           <span>
             {isolation.kind === 'mine' && mine
               ? `Isolated: my tasks (${mine.label} = ${mine.text})`
-              : `Isolated: ${isolation.kind === 'tasks' ? isolation.ids.length : 0} task${isolation.kind === 'tasks' && isolation.ids.length === 1 ? '' : 's'}`}
+              : isolation.kind === 'stack'
+                ? `Isolated: “${tasks.find((t) => t.id === isolation.path[isolation.path.length - 1])?.title ?? ''}” and its sub-tasks`
+                : `Isolated: ${isolation.kind === 'tasks' ? isolation.ids.length : 0} task${isolation.kind === 'tasks' && isolation.ids.length === 1 ? '' : 's'}`}
           </span>
+          {isolation.kind === 'stack' && (
+            <button aria-label="Close up" onClick={() => setStackPath(isolation.path.slice(0, -1))}>
+              ↑ Close up
+            </button>
+          )}
           <button onClick={() => setIsolation(null)}>Cancel isolate mode</button>
         </div>
       )}
@@ -2225,6 +2242,11 @@ export function BoardView({ source }: { source: Source }) {
           }}
           mine={mine}
           onChange={setMine}
+          autoIsolate={autoIsolate}
+          onAutoIsolate={(on) => {
+            setAutoIsolateState(on)
+            saveView(sheetId, { autoIsolate: on })
+          }}
           onClose={() => setMySettingsOpen(false)}
         />
       )}

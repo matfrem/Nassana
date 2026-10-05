@@ -8,11 +8,13 @@ interface Props {
   valuesFor: (key: string) => { raw: string; text: string }[]
   mine: MineRule | null
   onChange: (rule: MineRule | null) => void
+  autoIsolate: boolean
+  onAutoIsolate: (on: boolean) => void
   onClose: () => void
 }
 
 /** Personal settings, kept in this browser only: for now, which tasks are "mine" (a column and one of its values). */
-export function MySettings({ columns, valuesFor, mine, onChange, onClose }: Props) {
+export function MySettings({ columns, valuesFor, mine, onChange, autoIsolate, onAutoIsolate, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -81,6 +83,14 @@ export function MySettings({ columns, valuesFor, mine, onChange, onClose }: Prop
             </label>
           )}
           {mine && !mine.raw && column && <p className="hint">Pick a value to finish.</p>}
+        </section>
+        <section>
+          <h3>Sub-tasks</h3>
+          <label className="menu-check">
+            <input type="checkbox" checked={autoIsolate} onChange={(e) => onAutoIsolate(e.target.checked)} />
+            Auto isolate sub-tasks
+          </label>
+          <p className="hint">Tapping a stack's badge isolates that note and its sub-tasks (plus its parent); closing it leaves the mode. Off: the stack just spreads open.</p>
         </section>
       </div>
     </div>
