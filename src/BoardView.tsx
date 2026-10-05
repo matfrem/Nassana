@@ -2221,17 +2221,21 @@ export function BoardView({ source }: { source: Source }) {
               ? `Isolated: my tasks (${mine.label} = ${mine.text})`
               : `Isolated: ${isolation.kind === 'tasks' ? isolation.ids.length : 0} task${isolation.kind === 'tasks' && isolation.ids.length === 1 ? '' : 's'}`}
           </span>
-          <button onClick={() => setIsolation(null)}>Cancel isolate mode</button>
+          <button aria-label="Cancel isolate mode" title="Cancel isolate mode" onClick={() => setIsolation(null)}>
+            ✕
+          </button>
         </div>
       )}
 
       {stackPath.length > 0 && (
         <div className={`selection-bar zone-bar isolate-bar stack-bar${isolation ? ' second' : ''}`}>
           <span>{`Sub-tasks of “${tasks.find((t) => t.id === stackPath[stackPath.length - 1])?.title ?? ''}”`}</span>
-          <button aria-label="Close up" onClick={() => setStackPath(stackPath.slice(0, -1))}>
-            ↑ Close up
+          <button aria-label="Close up" title="Close up (one level)" onClick={() => setStackPath(stackPath.slice(0, -1))}>
+            ↑
           </button>
-          <button onClick={() => setStackPath([])}>Cancel sub-task isolation</button>
+          <button aria-label="Cancel sub-task isolation" title="Cancel sub-task isolation" onClick={() => setStackPath([])}>
+            ✕
+          </button>
         </div>
       )}
 
