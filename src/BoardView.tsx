@@ -1018,10 +1018,11 @@ export function BoardView({ source }: { source: Source }) {
   const setParent = (child: string, parent: string | null) => setParentMany([child], parent)
 
   setParentRef.current = setParent
-  const stackOpenForBoard = useMemo(() => new Set([...openStacks, ...(isolation?.kind === 'stack' ? isolation.path : [])]), [openStacks, isolation])
+  // While a stack is isolated, only the stacks opened in that session are open: the shared open/closed state of the others is ignored.
+  const stackOpenForBoard = useMemo(() => new Set(isolation?.kind === 'stack' ? isolation.path : openStacks), [openStacks, isolation])
   const stackKids = useMemo(() => childrenOf(parents), [parents])
   // A task that is not drawn (closed, isolated out) does not keep its sub-tasks tucked away: they cannot open it.
-  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, new Set([...openStacks, ...goneSet, ...(isolation?.kind === 'stack' ? isolation.path : [])])), [tasks, parents, openStacks, goneSet, isolation])
+  const tuckedMap = useMemo(() => tuckedNotes(tasks, parents, new Set([...(isolation?.kind === 'stack' ? isolation.path : openStacks), ...goneSet])), [tasks, parents, openStacks, goneSet, isolation])
   tuckedRef.current = tuckedMap
 
   const deleteSelected = () => {

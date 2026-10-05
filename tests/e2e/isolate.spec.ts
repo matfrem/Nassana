@@ -210,3 +210,17 @@ test('isolating selected tasks or my tasks no longer moves the camera', async ({
   await page.getByRole('button', { name: /Isolate selected tasks/ }).click()
   expect(await worldTransform(page)).toBe(cam)
 })
+
+test('inside an auto isolation every stack starts closed, whatever its shared open state; a deeper stack can be closed again', async ({ page }) => {
+  const s = tree()
+  s.tabs._board = [['id', 'type', 'data'], ['open:a1', 'open', '1']] // A1 was opened earlier, outside any isolation
+  await openBoard(page, s)
+  await badge(page, 'Root').click()
+  await badge(page, 'A').click() // isolate A: A1 is shown, but closed
+  expect(await titles(page)).toEqual(['A', 'A1', 'Root'])
+  await expect(badge(page, 'A1')).toContainText('▤')
+  await badge(page, 'A1').click()
+  expect(await titles(page)).toEqual(['A', 'A1', 'A1a', 'A1b'])
+  await badge(page, 'A1').click() // and it closes again
+  expect(await titles(page)).toEqual(['A', 'A1', 'Root'])
+})
